@@ -56,13 +56,12 @@ void testElement() {
 void testEdge() {
     std::vector<double> normalVec = {0.0, 1.0};
     std::vector<double> midP = {0.5, 1.5};
-    Edge e(0, 0, 1, -1, -1, 1, 1.0, normalVec, midP);
+    Edge e(0, 0, 1, -1, -1, 1, normalVec, midP);
     assert(e.ind == 0);
     assert(e.nodeInd1 == 0);
     assert(e.nodeInd2 == 1);
     assert(e.neighbourInd1 == -1);
     assert(e.neighbourInd2 == -1);
-    assert(e.orientation == 1);
     assert(e.length == 1.0);
     assert(e.normalVector == normalVec);
     assert(e.midPoint == midP);
@@ -70,13 +69,13 @@ void testEdge() {
     // Zero-length edge
     std::vector<double> zeroNormal = {0.0, 0.0};
     std::vector<double> zeroMid = {0.0, 0.0};
-    Edge e1(0, 0, 0, -1, -1, 0, 0.0, zeroNormal, zeroMid);
+    Edge e1(0, 0, 0, -1, -1, 0, zeroNormal, zeroMid);
     assert(e1.length == 0.0);
 
     // Test normal vector precision
     std::vector<double> normalVec1 = {1.0 / std::sqrt(2), 1.0 / std::sqrt(2)};
     std::vector<double> midP1 = {0.5, 0.5};
-    Edge e2(1, 0, 1, -1, -1, 1, 1.0, normalVec1, midP1);
+    Edge e2(1, 0, 1, -1, -1, 1, normalVec1, midP1);
     assert(std::abs(e2.normalVector[0] - 0.7071) < 1e-4);
     assert(std::abs(e2.normalVector[1] - 0.7071) < 1e-4);
 

@@ -12,10 +12,9 @@ Element::Element(const int index, const std::vector<int> &nIndexes, int size)
         : ind(index), nodeIndexes(nIndexes), dim(size), edgeIndexes(), centroid2D() {
 }
 
-Edge::Edge(int index, int node1, int node2, int neighbor1, int neighbor2, int orient, double len, const std::vector<double>& normalVec, const std::vector<double>& midP)
+Edge::Edge(int index, int node1, int node2, int neighbor1, int neighbor2, double len, const std::vector<double>& normalVec, const std::vector<double>& midP)
         : ind(index), nodeInd1(node1), nodeInd2(node2),
-          neighbourInd1(neighbor1), neighbourInd2(neighbor2),
-          orientation(orient), length(len), normalVector(normalVec), midPoint(midP) {}
+          neighbourInd1(neighbor1), neighbourInd2(neighbor2), length(len), normalVector(normalVec), midPoint(midP) {}
 
 
 double areaCalc(const Element& poly, const NodePool& nPool) {
@@ -128,6 +127,9 @@ EdgePool::EdgePool(const NodePool& np, ElementPool& ep) {
     // Loop through each element to create edges
     for (const auto& element : ep.elements) {
         int dim = element.dim;
+        if(dim != 3){
+            std::cout << "dim != 3" << std::endl;
+        }
         for (int i = 0; i < dim; ++i) {
             int node1 = element.nodeIndexes[i];
             int node2 = element.nodeIndexes[(i + 1) % dim]; // Ensure cyclical connectivity
@@ -184,7 +186,7 @@ EdgePool::EdgePool(const NodePool& np, ElementPool& ep) {
             minEdgeLen = len;
         }
         // Create the edge and add it to the list
-        edges.emplace_back(edgeIndex, node1, node2, neighbor1, neighbor2, orientation, len, normalVector, edgeMid);
+        edges.emplace_back(edgeIndex, node1, node2, neighbor1, neighbor2, len, normalVector, edgeMid);
 
         ++edgeIndex;
     }
@@ -215,33 +217,37 @@ ElementPool World::getElementPool() const {
 
 /*NEIGHBOUR SERVICE*/
 NeighbourService::NeighbourService(const NodePool& np, const ElementPool& ep, const EdgePool& edgePool) {
-    // Populate nodeToElements and elementToElements
-    for (const auto& element : ep.elements) {
-        for (int nodeIndex : element.nodeIndexes) {
-            nodeToElements[nodeIndex].insert(element.ind);
-        }
-        for (int edgeIndex : element.edgeIndexes) {
-            edgeToElements[edgeIndex].insert(element.ind);
-        }
-    }
+    // Reserve space for maps
+    nodeToElements.reserve(np.nodeCount);
+    edgeToElements.reserve(edgePool.edgeCount);
+    elementToElements.reserve(ep.elCount);
+    nodeToEdgesMap.reserve(np.nodeCount);
 
-    // Populate elementToElements using shared nodes
-    for (const auto& element : ep.elements) {
-        std::unordered_set<int> connectedElements;
+    // Parallelize node-to-elements and edge-to-elements population
+#pragma omp parallel for
+    for (size_t i = 0; i < ep.elements.size(); ++i) {
+        const auto& element = ep.elements[i];
+
+        // Use OpenMP critical section for thread-safe map updates
         for (int nodeIndex : element.nodeIndexes) {
-            for (int neighbourIndex : nodeToElements[nodeIndex]) {
-                if (neighbourIndex != element.ind) {
-                    connectedElements.insert(neighbourIndex);
-                }
+#pragma omp critical(nodeToElements)
+            {
+                nodeToElements[nodeIndex].insert(element.ind);
             }
         }
-        elementToElements[element.ind] = connectedElements;
+
     }
 
-    for (int edgeIndex = 0; edgeIndex < edgePool.edges.size(); ++edgeIndex) {
+    // Parallelize node-to-edges map population
+#pragma omp parallel for
+    for (size_t edgeIndex = 0; edgeIndex < edgePool.edges.size(); ++edgeIndex) {
         const auto& edge = edgePool.edges[edgeIndex];
-        nodeToEdgesMap[edge.nodeInd1].push_back(edgeIndex);
-        nodeToEdgesMap[edge.nodeInd2].push_back(edgeIndex);
+
+#pragma omp critical(nodeToEdgesMap)
+        {
+            nodeToEdgesMap[edge.nodeInd1].push_back(edgeIndex);
+            nodeToEdgesMap[edge.nodeInd2].push_back(edgeIndex);
+        }
     }
 }
 
@@ -376,12 +382,13 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
                         ss >> indexes[i]; // Directly read into vector
                         indexes[i] -= 1;
                     }
-                    elements.emplace_back(ind, indexes, count);
+                    elements.emplace_back(ind-1, indexes, count);
                     std::getline(file, tmp_line);
                 }
             }
         }
 
+        std::cout << "Creating node and element pools..." << std::endl;
         np = NodePool(nodes.size(), nodes);
         ep = ElementPool(nodes[0].ind, elements.size(), elements); // Assuming nodes[0].ind is the nodesPerElement
 
@@ -390,18 +397,47 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
             ep.elements[i].centroid2D = getElementCentroid2D(ep.elements[i], np);
         }
 
+        std::cout << "Creating edgepool..." << std::endl;
         edgp = EdgePool(np, ep);  // Construct edges based on NodePool and ElementPool
+        std::cout << "Creating neighbour service..." << std::endl;
         ns = NeighbourService(np, ep, edgp);
-
 
         for (auto &element: ep.elements) {
             for (int i = 0; i < element.dim; ++i) {
                 int nodeInd = element.nodeIndexes[i];
                 int nodeInd_after = element.nodeIndexes[(i + 1) % element.dim];
                 int edgeInd = ns.findEdgeByNodes(nodeInd, nodeInd_after, edgp);
-                if (edgeInd > 0) {
+                if (edgeInd > -1) {
                     element.edgeIndexes.push_back(edgeInd);
                 }
+            }
+        }
+#pragma omp parallel for
+        for (size_t i = 0; i < ep.elements.size(); ++i) {
+            const auto &element = ep.elements[i];
+            for (int edgeIndex: element.edgeIndexes) {
+#pragma omp critical(edgeToElements)
+                {
+                    ns.edgeToElements[edgeIndex].insert(element.ind);
+                }
+            }
+        }
+
+        // Parallelize element-to-element connections
+#pragma omp parallel for
+        for (size_t i = 0; i < ep.elements.size(); ++i) {
+            const auto& element = ep.elements[i];
+            std::unordered_set<int> connectedElements;
+
+            for (int edgeIndex : element.edgeIndexes) {
+                connectedElements.insert(ns.edgeToElements[edgeIndex].begin(),ns.edgeToElements[edgeIndex].end());
+
+            }
+            connectedElements.erase(connectedElements.find(element.ind));
+            // Update the map in a thread-safe manner
+#pragma omp critical(elementToElements)
+            {
+                ns.elementToElements[element.ind] = std::move(connectedElements);
             }
         }
     }
@@ -439,7 +475,7 @@ void World::display() const {
         std::cout << "Edge Index: " << edge.ind << ", Nodes: ("
                   << edge.nodeInd1 << ", " << edge.nodeInd2 << "), "
                   << "Neighbors: (" << edge.neighbourInd1 << ", " << edge.neighbourInd2 << ")"
-                  << ", Orientation: " << edge.orientation << ", Normal: ("
+                  << ", Normal: ("
                   << edge.normalVector[0] << ", " << edge.normalVector[1] << "), len = "
                   << edge.length << ", MidPoint = ("<< edge.midPoint[0] << ", "<< edge.midPoint[1] << ")"<<std::endl;
     }
@@ -482,6 +518,20 @@ void World::exportToFile(const string &filename) const{
         for (const auto& nodeIndex : element.nodeIndexes) {
             file.write(reinterpret_cast<const char*>(&nodeIndex), sizeof(nodeIndex));
         }
+        if(element.dim != element.edgeIndexes.size()){
+            std::cout << element.dim << " vs " << element.edgeIndexes.size() << std::endl;
+            std::cout << element.ind << " element has area = " << element.area << std::endl;
+            std::cout << "Elem's nodes are: ";
+            for(const auto& ind: element.nodeIndexes){
+                Node curnode = np.getNode(ind);
+                std::cout << ind << "( "<< curnode.x << ", " << curnode.y << ", " << curnode.z << " ); ";
+            }
+
+            std::cout << std::endl;
+        }
+        for(const auto& edgeIndex: element.edgeIndexes){
+            file.write(reinterpret_cast<const char*>(&edgeIndex), sizeof(edgeIndex));
+        }
         double area = element.area;
         file.write(reinterpret_cast<const char*>(&area), sizeof(area));
         for (const auto& coord : element.centroid2D) {
@@ -498,7 +548,6 @@ void World::exportToFile(const string &filename) const{
         file.write(reinterpret_cast<const char*>(&edge.nodeInd2), sizeof(edge.nodeInd2));
         file.write(reinterpret_cast<const char*>(&edge.neighbourInd1), sizeof(edge.neighbourInd1));
         file.write(reinterpret_cast<const char*>(&edge.neighbourInd2), sizeof(edge.neighbourInd2));
-        file.write(reinterpret_cast<const char*>(&edge.orientation), sizeof(edge.orientation));
         file.write(reinterpret_cast<const char*>(&edge.length), sizeof(edge.length));
         for (const auto& val : edge.normalVector) {
             file.write(reinterpret_cast<const char*>(&val), sizeof(val));
@@ -593,6 +642,10 @@ void World::importFromFile(const string &filename) {
         for (auto& nodeIndex : element.nodeIndexes) {
             file.read(reinterpret_cast<char*>(&nodeIndex), sizeof(nodeIndex));
         }
+        element.edgeIndexes.resize(dim);
+        for (auto& edgeIndex : element.edgeIndexes) {
+            file.read(reinterpret_cast<char*>(&edgeIndex), sizeof(edgeIndex));
+        }
         file.read(reinterpret_cast<char*>(&element.area), sizeof(element.area));
         element.centroid2D.resize(2);
         for (auto& coord : element.centroid2D) {
@@ -611,7 +664,6 @@ void World::importFromFile(const string &filename) {
         file.read(reinterpret_cast<char*>(&edge.nodeInd2), sizeof(edge.nodeInd2));
         file.read(reinterpret_cast<char*>(&edge.neighbourInd1), sizeof(edge.neighbourInd1));
         file.read(reinterpret_cast<char*>(&edge.neighbourInd2), sizeof(edge.neighbourInd2));
-        file.read(reinterpret_cast<char*>(&edge.orientation), sizeof(edge.orientation));
         file.read(reinterpret_cast<char*>(&edge.length), sizeof(edge.length));
         edge.normalVector.resize(2);
         for (auto& val : edge.normalVector) {

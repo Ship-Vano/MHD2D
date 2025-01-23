@@ -7,6 +7,7 @@
 
 #include "NamesNConstants.h"
 #include "service/LinOp.h"
+#include <omp.h>
 #include <vector>
 #include <string>
 #include <fstream>
@@ -39,16 +40,14 @@ public:
     int nodeInd2; // номер второго узла
     int neighbourInd1; //номер первого соседнего элемента
     int neighbourInd2; //номер второго соседнего элемента
-    int orientation; // ориентация (по идее будет = 1 или = -1)
     double length;
     std::vector<double> normalVector; // компоненты вектора нормали
     std::vector<double> midPoint;
     Edge(): ind(0), nodeInd1(0), nodeInd2(0),
-              neighbourInd1(-1), neighbourInd2(-1),
-              orientation(0), length(0.0),
+              neighbourInd1(-1), neighbourInd2(-1), length(0.0),
               normalVector(2, 0.0), midPoint(2, 0.0) {}
     Edge(int index, int node1, int node2, int neighbor1, int neighbor2,
-         int orient, double len, const std::vector<double>& normalVec, const std::vector<double>& midPoint);
+         double len, const std::vector<double>& normalVec, const std::vector<double>& midPoint);
 };
 
 // Элемент

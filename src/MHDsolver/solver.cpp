@@ -17,11 +17,11 @@ int main(){
     assert(read_succeeded);
 
     std::string importFileName = json_root.get("importFileName", "").asString();
-
+    std::cout << "Generating the world from " << importFileName << " file by reading it..." << std::endl;
     World world(importFileName, true);
     std::cout << "MINlen = "<< world.getEdgePool().minEdgeLen << std::endl;
     // world.display();
-    std::cin.get();
+    //std::cin.get();
     MHDSolver2D solver(world);
     solver.runSolver();
     std::cout << "solver complete" << std::endl;

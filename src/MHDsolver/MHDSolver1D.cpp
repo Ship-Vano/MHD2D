@@ -122,8 +122,22 @@ double cfast(const std::vector<double>& U, const double& gam_hcr) {
     double BB = Bx * Bx + By * By + Bz * Bz;
     //p
     double p = pressure(gam_hcr, e, rho, u, v, w, Bx, By, Bz);
+    if (rho <= 0.0 || p <= 0.0) {
+        std::cerr << "Warning: Unphysical state detected in cfast. "
+                  << "rho = " << rho << ", p = " << p << std::endl;
+        std::cin.get();
+    }
 
-    return std::sqrt((gam_hcr * p + BB + std::sqrt((gam_hcr * p + BB) * (gam_hcr * p + BB) - 4 * gam_hcr * p * Bx * Bx)) / (2 * rho));
+    double cfast = std::sqrt((gam_hcr * p + BB + std::sqrt((gam_hcr * p + BB) * (gam_hcr * p + BB) - 4 * gam_hcr * p * Bx * Bx)) / (2 * rho));
+
+    if (cfast > 1e6 || std::isnan(cfast)) {
+        std::cerr << "Unrealistic cfast detected: " << cfast
+                  << ", rho = " << rho << ", p = " << p
+                  << ", BB = " << BB << std::endl;
+        std::cin.get();
+    }
+
+    return cfast;
 }
 
 // Определяем HLL поток F

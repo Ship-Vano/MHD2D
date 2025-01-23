@@ -19,8 +19,9 @@ public:
     double startTime = 0.0;  // время отсчёта
     double finalTime = 0.1;   // время окончания
     double tau = 0.0001; // шаг по времени
+    double min_tau = 1e-16;
     double cflNum = 0.8; // число Куранта
-    int MAX_ITERATIONS = 1000000000;
+    int MAX_ITERATIONS = 1000;
 
     //states
     std::vector<std::vector<double>> nodeUs; // state U in nodes

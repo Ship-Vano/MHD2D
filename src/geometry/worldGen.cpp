@@ -35,6 +35,12 @@ int main() {
     std::cout << "fileName is " << dataFileName << std::endl;
     World world(dataFileName, false);
     std::cout << "World has been generated successfully!" << std::endl;
+
+    for (const auto &elem: world.getElementPool().elements) {
+        if (elem.edgeIndexes.empty()) {
+            std::cout << "Empty element! (no edges)" << std::endl;
+        }
+    }
     bool displayWorld = json_root.get("displayWorld", false).asBool();
     if(displayWorld){
         world.display();
