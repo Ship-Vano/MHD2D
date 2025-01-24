@@ -20,19 +20,23 @@ public:
     double finalTime = 0.1;   // время окончания
     double tau = 0.0001; // шаг по времени
     double min_tau = 1e-16;
-    double cflNum = 0.8; // число Куранта
-    int MAX_ITERATIONS = 1000;
+    double cflNum = 0.1; // число Куранта
+    int MAX_ITERATIONS = 10000000;//310
 
     //states
     std::vector<std::vector<double>> nodeUs; // state U in nodes
     std::vector<std::vector<double>> elemUs; // state U in elements
     std::vector<std::vector<double>> edgeUs; // state U in edges
     std::vector<std::vector<double>> initElemUs;
+    std::vector<std::vector<double>> initEdgeUs;
     std::vector<double> initBns;
     std::vector<double> bNs; //Bns at edges
 
     static std::vector<double> rotateStateFromNormalToAxisX(std::vector<double>& U, const std::vector<double>& n);
     static std::vector<double> rotateStateFromAxisToNormal(std::vector<double>& U, const std::vector<double>& n);
+    double tau_from_cfl2D(const double& sigma, const double& hx, const double& hy, const std::vector<std::vector<double>>& states, const double& gam_hcr);
+    double tau_from_cfl2D(const double& sigma, const double& min_h, std::vector<std::vector<double>>& edgeStates, const double& gam_hcr,
+                          const EdgePool& ep);
     void setInitElemUs();
     void runSolver();
 
@@ -47,7 +51,7 @@ public:
     // Правые граничные условия
     std::function<std::vector<double>(double)> rightBoundaryFunction;
     bool rightBoundaryFunction_is_set = false;
-
+    std::vector<double> applyLimiter(const std::vector<double>& U_left, const std::vector<double>& U_center, const std::vector<double>& U_right);
     MHDSolver2D(const World& world);
 };
 

@@ -9,27 +9,31 @@ MHDSolver2D::MHDSolver2D(const World &world): geometryWorld(world), nodeUs(world
     elemUs(world.getElementPool().elCount), edgeUs(world.getEdgePool().edgeCount), initElemUs(world.getElementPool().elCount),
     initBns(world.getEdgePool().edgeCount), bNs(world.getEdgePool().edgeCount){}
 
-double tau_from_cfl2D(const double& sigma, const double& hx, const double& hy, const std::vector<std::vector<double>>& states, const double& gam_hcr) {
-    double max_speed = 0.0;
+// Minmod limiter for state variables
+double minmod(double a, double b) {
+    if (a * b > 0.0) {
+        return std::copysign(std::min(std::abs(a), std::abs(b)), a);
+    }
+    return 0.0;
+}
 
-    for (const auto& state : states) {
-        double u = std::fabs(state[1] / state[0]);
-        double v = std::fabs(state[2] / state[0]);
-        double cf = cfast(state, gam_hcr);
-        double local_speed = (u + cf) / hx + (v + cf) / hy;
-        max_speed = std::max(max_speed, local_speed);
+// Apply limiter to edge states
+std::vector<double> MHDSolver2D::applyLimiter(const std::vector<double>& U_left, const std::vector<double>& U_center, const std::vector<double>& U_right) {
+    std::vector<double> limited(U_center.size());
+    for (size_t i = 0; i < U_center.size(); ++i) {
+        double slope_left = U_center[i] - U_left[i];
+        double slope_right = U_right[i] - U_center[i];
+        double slope_center = (U_right[i] - U_left[i]) / 2.0;
+        double limited_slope = minmod(slope_left, slope_center);
+        limited[i] = U_center[i] - 0.5 * limited_slope;
     }
-    if(max_speed < 1e-16){
-        max_speed = 1e-8;
-    }
-    double tau = sigma / max_speed;
-    const double max_tau = 1e-3; // Define maximum allowable time step
-    return std::min(tau, max_tau);
+    return limited;
 }
 
 /*вращения*/
 // n = {cos(j), sin(j)} = {n.x, n.y}
-// ({cos(j), -sin(j), 0}, {sin(j), cos(j), 0}, {0,0,1}) --- around OZ counterclockwise
+
+// ({cos(j), sin(j), 0}, {-sin(j), cos(j), 0}, {0,0,1}) --- around OZ clockwise
 // rotate 1: from normal to OX:      {v.x * n.x + vy * n.y, - v.x * n.y + v.y * n.x, v.z}
 // вращаем {u,v,w} и {Bx, By, Bz}, остальные остаются на месте
 std::vector<double> MHDSolver2D::rotateStateFromAxisToNormal(vector<double> &U, const vector<double>& n) {
@@ -41,7 +45,7 @@ std::vector<double> MHDSolver2D::rotateStateFromAxisToNormal(vector<double> &U, 
     return res;
 }
 
-// ({cos(j), sin(j), 0}, {-sin(j), cos(j), 0}, {0,0,1}) --- around OZ clockwise
+// ({cos(j), -sin(j), 0}, {sin(j), cos(j), 0}, {0,0,1}) --- around OZ counterclockwise
 // rotate 2: from OX to normal:      {v.x * n.x - vy * n.y,  v.x * n.y + v.y * n.x, v.z}
 std::vector<double> MHDSolver2D::rotateStateFromNormalToAxisX(vector<double> &U, const vector<double>& n) {
     std::vector<double> res(U);
@@ -52,12 +56,47 @@ std::vector<double> MHDSolver2D::rotateStateFromNormalToAxisX(vector<double> &U,
     return res;
 }
 
+double MHDSolver2D::tau_from_cfl2D(const double& sigma, const double& hx, const double& hy, const std::vector<std::vector<double>>& states, const double& gam_hcr) {
+    double max_speed = 0.0;
+
+    for (const auto& state : states) {
+        double u = std::fabs(state[1] / state[0]);
+        double v = std::fabs(state[2] / state[0]);
+        double cf = cfast(state, gam_hcr);
+        double local_speed = (u + cf) / hx + (v + cf) / hy;
+        max_speed = std::max(max_speed, local_speed);
+    }
+    if(max_speed < 1e-16){
+        max_speed = 1e-14;
+    }
+    double tau = sigma / max_speed;
+    const double max_tau = 1e-2; // Define maximum allowable time step
+    return std::min(tau, max_tau);
+}
+
+
+double MHDSolver2D::tau_from_cfl2D(const double& sigma, const double& min_h, std::vector<std::vector<double>>& edgeStates, const double& gam_hcr,
+                      const EdgePool& ep) {
+    double max_speed = 0.0;
+    for (const auto& edge : ep.edges) {
+        const vector<double> rotatedState = rotateStateFromAxisToNormal(edgeStates[edge.ind], edge.normalVector);
+        double u = std::fabs(rotatedState[1] / rotatedState[0]);
+        double cf = cfast(rotatedState, gam_hcr);
+        double local_speed = (u + cf);
+        max_speed = std::max(max_speed, local_speed);
+    }
+    max_speed = std::max(max_speed, 1e-14); // Prevent division by zero
+    double optimal_tau = sigma * min_h / max_speed;
+    return std::min(optimal_tau, 1e-2);
+}
+
+
 void MHDSolver2D::setInitElemUs() {
     /*rho  u   v   w   p   Bx   By   Bz gam_hcr*/
     std::vector<double> BrioWu_L1{1.0,   0.0, 0.0, 0.0, 1.0, 0.75, 1.0, 0.0, gam_hcr};
     std::vector<double> BrioWu_R1{0.125, 0.0, 0.0, 0.0, 0.1, 0.75, -1.0, 0.0, gam_hcr};
     ElementPool ep = geometryWorld.getElementPool();
-    //initElemUs.resize(ep.elCount, std::vector<double>(8, 0.0));
+    initElemUs.resize(ep.elCount, std::vector<double>(8, 0.0));
     for(const auto& elem: ep.elements){
         std::vector<double> centroid = elem.centroid2D;
         int elInd = elem.ind;
@@ -70,6 +109,7 @@ void MHDSolver2D::setInitElemUs() {
     }
     EdgePool edgp = geometryWorld.getEdgePool();
     //initBns.resize(edgp.edgeCount, 0.0);
+    initEdgeUs.resize(edgp.edgeCount, std::vector<double>(8, 0.0));
     for(const auto& edge: edgp.edges){
         std::vector<double> midP = edge.midPoint;
         int edgeInd = edge.ind;
@@ -83,6 +123,7 @@ void MHDSolver2D::setInitElemUs() {
         }
         double Bn = state[5] * normal[0] + state[6] * normal[1];
         initBns[edgeInd] = Bn;
+        initEdgeUs[edgeInd] = state;
     }
 }
 
@@ -97,6 +138,7 @@ void MHDSolver2D::runSolver() {
     // инициализируем состояния
     setInitElemUs();
     elemUs = initElemUs;
+    edgeUs = initEdgeUs;
     bNs = initBns;
 
     // сделать старые дубликаты состояний (предыдущие состояния) чтобы в новые записывать расчёты
@@ -104,9 +146,7 @@ void MHDSolver2D::runSolver() {
     std::vector<std::vector<double>> nodeUs_prev(nodeUs);
     std::vector<std::vector<double>> edgeUs_prev(edgeUs);
 
-    // инициализируем вектор потоков через рёбра // MHD (HLLD) fluxes (from one element to another "<| -> |>")
-    std::vector<std::vector<double>> fluxes(edgePool.edgeCount, std::vector<double>(8, 0.0));
-    std::vector<std::vector<double>> unrotated_fluxes(edgePool.edgeCount, std::vector<double>(8, 0.0));
+
 
     double h = edgePool.minEdgeLen;
     std::cout << "Min h = " << h << std::endl;
@@ -116,12 +156,12 @@ void MHDSolver2D::runSolver() {
     int iterations = 0;
 
     while(currentTime < finalTime) {
-        std::cout << "iteration #" << iterations << std::endl;
+        //std::cout << "iteration #" << iterations << std::endl;
         elemUs_prev.swap(elemUs);
         nodeUs_prev.swap(nodeUs);
         edgeUs_prev.swap(edgeUs);
 
-        tau = std::max(min_tau, tau_from_cfl2D(cflNum, h, h, elemUs_prev, gam_hcr));
+        tau = std::max(min_tau, tau_from_cfl2D(cflNum, h, edgeUs_prev, gam_hcr, edgePool));
 
         currentTime += tau;
         if(currentTime > finalTime){
@@ -131,16 +171,20 @@ void MHDSolver2D::runSolver() {
 
         if(iterations % 100 == 0)
             std::cout << std::setprecision(10) << "t = "<< currentTime << std::endl;
-
+        /*double divergence = computeDivergence(elemUs, edgePool);
+        if(divergence > -1) {
+            std::cout << "Max divergence: " << divergence << std::endl;
+        }*/
         //(2) вычисляем потоки, проходящие через каждое ребро
+        // инициализируем вектор потоков через рёбра // MHD (HLLD) fluxes (from one element to another "<| -> |>")
+        std::vector<std::vector<double>> fluxes(edgePool.edgeCount, std::vector<double>(8, 0.0));
+        std::vector<std::vector<double>> unrotated_fluxes(edgePool.edgeCount, std::vector<double>(8, 0.0));
 #pragma parallel for
         for (const auto &edge: edgePool.edges) {
-            Node node1 = nodePool.getNode(edge.nodeInd1);
-            Node node2 = nodePool.getNode(edge.nodeInd2);
             int neighbour1 = edge.neighbourInd1;
             int neighbour2 = edge.neighbourInd2;
             std::vector<double> U1 = rotateStateFromAxisToNormal(elemUs_prev[neighbour1], edge.normalVector);
-            if (neighbour2 > 0) {
+            if (neighbour2 > -1) {
                 std::vector<double> U2 = rotateStateFromAxisToNormal(elemUs_prev[neighbour2], edge.normalVector);
                 fluxes[edge.ind] = HLLD_flux(U1, U2, gam_hcr);
                 unrotated_fluxes[edge.ind] = HLLD_flux(U1, U2, gam_hcr);
@@ -161,9 +205,9 @@ void MHDSolver2D::runSolver() {
             for (int edgeIndex: elem.edgeIndexes) {
                 Edge edge_j = edgePool.edges[edgeIndex];
                 if (edge_j.neighbourInd1 == i) {
-                    fluxSum = fluxSum + edge_j.length * /*unrotated_*/fluxes[edgeIndex];
+                    fluxSum = fluxSum + edge_j.length * fluxes[edgeIndex];
                 } else if (edge_j.neighbourInd2 == i){
-                    fluxSum = fluxSum - edge_j.length * /*unrotated_*/fluxes[edgeIndex];
+                    fluxSum = fluxSum - edge_j.length * fluxes[edgeIndex];
                 }
                 else{
                     std::cerr << "No matching edge..." << std::endl;
@@ -179,7 +223,7 @@ void MHDSolver2D::runSolver() {
         for (const auto &node: nodePool.nodes) {
             int tmp_count = 0;
             for (const auto &neighbourEdgeInd: ns.getEdgeNeighborsOfNode(node.ind)) {
-                nodeMagDiffs[node.ind] += /*unrotated_*/fluxes[neighbourEdgeInd][6];
+                nodeMagDiffs[node.ind] += fluxes[neighbourEdgeInd][6];
                 ++tmp_count;
             }
             if (tmp_count) {
@@ -190,7 +234,7 @@ void MHDSolver2D::runSolver() {
         //находим новое значение Bn в ребре
         std::vector<double> bNs_prev(bNs);
         for (const auto& edge: edgePool.edges) {
-            bNs[edge.ind] = bNs_prev[edge.ind] + tau / edge.length * (nodeMagDiffs[edge.nodeInd1] -
+            bNs[edge.ind] = bNs_prev[edge.ind] - tau /*/ edge.length*/ * (nodeMagDiffs[edge.nodeInd1] -
                                                         nodeMagDiffs[edge.nodeInd2]);
         }
 
@@ -231,11 +275,19 @@ void MHDSolver2D::runSolver() {
                 }
             }
         }
-        ++iterations;
-        double divergence = computeDivergence(elemUs, edgePool);
-        if(divergence > -1) {
-            std::cout << "Max divergence: " << divergence << std::endl;
+
+        for(const auto& edge: edgePool.edges){
+            vector<double> state1 = elemUs[edge.neighbourInd1];
+            if(edge.neighbourInd2 > -1) {
+                vector<double> state2 = elemUs[edge.neighbourInd2];
+                edgeUs[edge.ind] = 0.5 * (state1 + state2);
+                continue;
+            }
+            edgeUs[edge.ind] = state1;
         }
+
+        ++iterations;
+
         //int elemNum = 0;
 #pragma parallel for
         for(const auto& u: elemUs){
@@ -243,6 +295,7 @@ void MHDSolver2D::runSolver() {
                 if(std::isnan(val)){
                     std::cout << "found a nan value!" << std::endl;
                     //std::cout << "ElemNum = " << elemNum << std::endl;
+                    break;
                     std::cin.get();
                 }
             }
@@ -344,10 +397,10 @@ double computeDivergence(const std::vector<std::vector<double>>& elemUs, const E
     for (const auto& edge : edgePool.edges) {
         double Bn1 = elemUs[edge.neighbourInd1][5] * edge.normalVector[0] +
                      elemUs[edge.neighbourInd1][6] * edge.normalVector[1];
-        double Bn2 = (edge.neighbourInd2 >= 0) ?
+        double Bn2 = (edge.neighbourInd2 > -1) ?
                      elemUs[edge.neighbourInd2][5] * edge.normalVector[0] +
                      elemUs[edge.neighbourInd2][6] * edge.normalVector[1]
-                                               : 0.0;
+                                               : Bn1;
         max_divergence = std::max(max_divergence, std::fabs(Bn1 - Bn2));
     }
 

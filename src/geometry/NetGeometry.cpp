@@ -127,9 +127,9 @@ EdgePool::EdgePool(const NodePool& np, ElementPool& ep) {
     // Loop through each element to create edges
     for (const auto& element : ep.elements) {
         int dim = element.dim;
-        if(dim != 3){
+        /*if(dim != 3){
             std::cout << "dim != 3" << std::endl;
-        }
+        }*/
         for (int i = 0; i < dim; ++i) {
             int node1 = element.nodeIndexes[i];
             int node2 = element.nodeIndexes[(i + 1) % dim]; // Ensure cyclical connectivity
