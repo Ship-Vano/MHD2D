@@ -19,8 +19,8 @@ public:
     double startTime = 0.0;  // время отсчёта
     double finalTime = 0.1;   // время окончания
     double tau = 0.0001; // шаг по времени
-    double min_tau = 1e-8;
-    double cflNum = 0.2; // число Куранта
+    double min_tau = 1e-6;
+    double cflNum = 0.3; // число Куранта
     int MAX_ITERATIONS = 100000;//310
 
     //states

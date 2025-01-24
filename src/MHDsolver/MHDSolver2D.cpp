@@ -179,7 +179,7 @@ void MHDSolver2D::runSolver() {
             writeVTU("OutputData/tmpres.vtu", geometryWorld, elemUs);
         }
         double divergence = computeDivergence(elemUs, edgePool);
-        if(divergence > 1e-8) {
+        if(divergence > 1e-10) {
             std::cout << "Max divergence: " << divergence << std::endl;
         }
         //(2) вычисляем потоки, проходящие через каждое ребро
