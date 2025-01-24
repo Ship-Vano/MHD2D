@@ -146,7 +146,12 @@ void MHDSolver2D::runSolver() {
     std::vector<std::vector<double>> nodeUs_prev(nodeUs);
     std::vector<std::vector<double>> edgeUs_prev(edgeUs);
 
-
+    /*for(const auto edge: edgePool.edges){
+        double norm = std::sqrt(edge.normalVector[0]*edge.normalVector[0] + edge.normalVector[1]*edge.normalVector[1]);
+        if(std::abs(1-norm) > 1e-14){
+            std::cout << "bad normal! " << std::abs(1-norm) << std::endl;
+        }
+    }*/
 
     double h = edgePool.minEdgeLen;
     std::cout << "Min h = " << h << std::endl;
@@ -169,12 +174,14 @@ void MHDSolver2D::runSolver() {
             currentTime = finalTime;
         }
 
-        if(iterations % 100 == 0)
-            std::cout << std::setprecision(10) << "t = "<< currentTime << std::endl;
-        /*double divergence = computeDivergence(elemUs, edgePool);
-        if(divergence > -1) {
+        if(iterations % 100 == 0) {
+            std::cout << std::setprecision(10) << "t = " << currentTime << std::endl;
+            writeVTU("OutputData/tmpres.vtu", geometryWorld, elemUs);
+        }
+        double divergence = computeDivergence(elemUs, edgePool);
+        if(divergence > 1e-8) {
             std::cout << "Max divergence: " << divergence << std::endl;
-        }*/
+        }
         //(2) вычисляем потоки, проходящие через каждое ребро
         // инициализируем вектор потоков через рёбра // MHD (HLLD) fluxes (from one element to another "<| -> |>")
         std::vector<std::vector<double>> fluxes(edgePool.edgeCount, std::vector<double>(8, 0.0));
@@ -223,7 +230,7 @@ void MHDSolver2D::runSolver() {
         for (const auto &node: nodePool.nodes) {
             int tmp_count = 0;
             for (const auto &neighbourEdgeInd: ns.getEdgeNeighborsOfNode(node.ind)) {
-                nodeMagDiffs[node.ind] += fluxes[neighbourEdgeInd][6];
+                nodeMagDiffs[node.ind] += unrotated_fluxes[neighbourEdgeInd][6];
                 ++tmp_count;
             }
             if (tmp_count) {
@@ -234,7 +241,7 @@ void MHDSolver2D::runSolver() {
         //находим новое значение Bn в ребре
         std::vector<double> bNs_prev(bNs);
         for (const auto& edge: edgePool.edges) {
-            bNs[edge.ind] = bNs_prev[edge.ind] - tau /*/ edge.length*/ * (nodeMagDiffs[edge.nodeInd1] -
+            bNs[edge.ind] = bNs_prev[edge.ind] + tau / edge.length * (nodeMagDiffs[edge.nodeInd1] -
                                                         nodeMagDiffs[edge.nodeInd2]);
         }
 

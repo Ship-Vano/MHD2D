@@ -121,6 +121,7 @@ double cfast(const std::vector<double>& U, const double& gam_hcr) {
     //|B|^2
     double BB = Bx * Bx + By * By + Bz * Bz;
     //p
+    //double p = std::max(pressure(gam_hcr, e, rho, u, v, w, Bx, By, Bz), 1e-15);
     double p = pressure(gam_hcr, e, rho, u, v, w, Bx, By, Bz);
     /*if (rho <= 0.0 || p <= 0.0) {
         std::cerr << "Warning: Unphysical state detected in cfast. "
