@@ -33,6 +33,7 @@ int main() {
 
     std::string dataFileName = json_root.get("fileName", "").asString();
     std::cout << "fileName is " << dataFileName << std::endl;
+    omp_set_num_threads(omp_get_max_threads());
     World world(dataFileName, false);
     std::cout << "World has been generated successfully!" << std::endl;
 

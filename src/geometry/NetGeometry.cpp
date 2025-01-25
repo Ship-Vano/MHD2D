@@ -222,7 +222,6 @@ NeighbourService::NeighbourService(const NodePool& np, const ElementPool& ep, co
     edgeToElements.reserve(edgePool.edgeCount);
     elementToElements.reserve(ep.elCount);
     nodeToEdgesMap.reserve(np.nodeCount);
-
     // Parallelize node-to-elements and edge-to-elements population
 #pragma omp parallel for
     for (size_t i = 0; i < ep.elements.size(); ++i) {
@@ -242,7 +241,6 @@ NeighbourService::NeighbourService(const NodePool& np, const ElementPool& ep, co
 #pragma omp parallel for
     for (size_t edgeIndex = 0; edgeIndex < edgePool.edges.size(); ++edgeIndex) {
         const auto& edge = edgePool.edges[edgeIndex];
-
 #pragma omp critical(nodeToEdgesMap)
         {
             nodeToEdgesMap[edge.nodeInd1].push_back(edgeIndex);

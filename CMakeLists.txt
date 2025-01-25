@@ -39,5 +39,14 @@ add_executable(Geometry
     src/geometry/NetGeometry.cpp
     src/include/json/jsoncpp.cpp
 )
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(Geometry PRIVATE OpenMP::OpenMP_CXX)
+else()
+    message(FATAL_ERROR "OpenMP not found!")
+endif()
+target_compile_options(Geometry PRIVATE -fopenmp)
+target_link_libraries(Geometry PRIVATE -fopenmp)
 
+target_compile_options(MHD2D PRIVATE -fopenmp)
+target_link_libraries(MHD2D PRIVATE -fopenmp)
 
