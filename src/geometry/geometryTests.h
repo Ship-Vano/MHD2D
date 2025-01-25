@@ -6,7 +6,7 @@
 #define MHD2D_GEOMETRYTESTS_H
 
 #include "NetGeometry.h"
-
+#include <climits>
 
 /* ТЕСТЫ ГЕОМЕТРИИ*/
 void testNode() {
