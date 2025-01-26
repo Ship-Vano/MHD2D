@@ -140,8 +140,7 @@ void MHDSolver2D::setInitElemUs() {
         double xi = 0.2;
         gam_hcr = 5.0/3.0;
         cflNum = 0.4;
-        //TODO : implement periodic boundary conditions
-        // TODO: generate 1/20 net of triangulars in domain [-6/2, 6/2] x [-6/2, 6/2]
+        periodicBoundaries = false;
         ElementPool ep = geometryWorld.getElementPool();
         EdgePool edgp = geometryWorld.getEdgePool();
         initElemUs.resize(ep.elCount, std::vector<double>(8, 0.0));
@@ -179,7 +178,6 @@ void MHDSolver2D::setInitElemUs() {
             double Bn = Bx_0 * edge.normalVector[0] + By_0 * edge.normalVector[1];
             initBns[edge.ind] = Bn;
         }
-        std::cout << "ALL GOOD" << std::endl;
     }
 }
 
@@ -202,20 +200,19 @@ void MHDSolver2D::runSolver() {
     std::vector<std::vector<double>> nodeUs_prev(nodeUs);
     std::vector<std::vector<double>> edgeUs_prev(edgeUs);
 
-    /*for(const auto edge: edgePool.edges){
+    for(const auto edge: edgePool.edges){
         double norm = std::sqrt(edge.normalVector[0]*edge.normalVector[0] + edge.normalVector[1]*edge.normalVector[1]);
         if(std::abs(1-norm) > 1e-14){
             std::cout << "bad normal! " << std::abs(1-norm) << std::endl;
         }
-    }*/
+    }
 
     double h = edgePool.minEdgeLen;
     std::cout << "Min h = " << h << std::endl;
 
     double currentTime = startTime;
-
+    bool foundNan = false;
     int iterations = 0;
-
     while(currentTime < finalTime) {
         //std::cout << "iteration #" << iterations << std::endl;
         elemUs_prev.swap(elemUs);
@@ -225,18 +222,20 @@ void MHDSolver2D::runSolver() {
         tau = std::max(min_tau, tau_from_cfl2D(cflNum, h, edgeUs_prev, gam_hcr, edgePool));
 
         currentTime += tau;
-        if(currentTime > finalTime){
+        if (currentTime > finalTime) {
             tau -= (currentTime - finalTime);
             currentTime = finalTime;
         }
 
-        if(iterations % 100 == 0) {
+        if (iterations % 100 == 0) {
             std::cout << std::setprecision(10) << "t = " << currentTime << std::endl;
             writeVTU("OutputData/tmpres.vtu", geometryWorld, elemUs);
         }
-        double divergence = computeDivergence(elemUs, edgePool);
-        if(divergence > 1e-10) {
-            std::cout << "Max divergence: " << divergence << std::endl;
+        if (debugDivergence) {
+            double divergence = computeDivergence(elemUs, edgePool);
+            if (divergence > 1e-10) {
+                std::cout << "Max divergence: " << divergence << std::endl;
+            }
         }
         //(2) вычисляем потоки, проходящие через каждое ребро
         // инициализируем вектор потоков через рёбра // MHD (HLLD) fluxes (from one element to another "<| -> |>")
@@ -263,20 +262,37 @@ void MHDSolver2D::runSolver() {
         //по явной схеме обновляем газовые величины
         #pragma omp parallel for
         for (const auto &elem: elPool.elements) {
+            bool is_boundary = false;
             int i = elem.ind;
             std::vector<double> fluxSum(8, 0.0);
             for (int edgeIndex: elem.edgeIndexes) {
                 Edge edge_j = edgePool.edges[edgeIndex];
-                if (edge_j.neighbourInd1 == i) {
-                    fluxSum = fluxSum + edge_j.length * fluxes[edgeIndex];
-                } else if (edge_j.neighbourInd2 == i){
-                    fluxSum = fluxSum - edge_j.length * fluxes[edgeIndex];
+                if(edge_j.neighbourInd2 != -1) {
+                    if (edge_j.neighbourInd1 == i) {
+                        fluxSum = fluxSum + edge_j.length * fluxes[edgeIndex];
+                    } else if (edge_j.neighbourInd2 == i) {
+                        fluxSum = fluxSum - edge_j.length * fluxes[edgeIndex];
+                    } else {
+                        std::cerr << "No matching edge..." << std::endl;
+                    }
                 }
                 else{
-                    std::cerr << "No matching edge..." << std::endl;
+                    is_boundary = true;
                 }
             }
-            elemUs[i] = elemUs_prev[i] - tau / elem.area * fluxSum;
+            if(is_boundary && periodicBoundaries){
+                if(ns.boundaryElemTopToBottom.count(i) != 0){
+                    elemUs[i].swap(elemUs_prev[ns.boundaryElemTopToBottom[i]]);
+                    elemUs[ns.boundaryElemTopToBottom[i]].swap(elemUs_prev[i]);
+                }
+                else if(ns.boundaryElemLeftToRight.count(i) != 0){
+                    elemUs[i].swap(elemUs_prev[ns.boundaryElemLeftToRight[i]]);
+                    elemUs[ns.boundaryElemLeftToRight[i]].swap(elemUs_prev[i]);
+                }
+            }
+            else{
+                elemUs[i] = elemUs_prev[i] - tau / elem.area * fluxSum;
+            }
         }
 
         //корректируем магнитные величины
@@ -351,28 +367,26 @@ void MHDSolver2D::runSolver() {
 
         ++iterations;
 
-        //int elemNum = 0;
-#pragma parallel for
+//#pragma parallel for
         for(const auto& u: elemUs){
             for(const auto& val: u){
                 if(std::isnan(val)){
-                    std::cout << "found a nan value!" << std::endl;
-                    //std::cout << "ElemNum = " << elemNum << std::endl;
+                    foundNan = true;
                     break;
-                    std::cin.get();
                 }
             }
-           // ++elemNum;
         }
-
+        if(foundNan){
+            std::cout << "Found a nan VALUE!!! Exiting the solver..." << std::endl;
+            break;
+        }
         if(iterations > MAX_ITERATIONS){
             std::cout << "iterations limit!" << std::endl;
             break;
         }
     }
 
-    //std::cin.get();
-    std::cout << "Final time = " << finalTime << std::endl;
+    std::cout << "Final time = " << currentTime << "; iterations = "<< iterations<<  std::endl;
 }
 
 

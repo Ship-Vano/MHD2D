@@ -21,11 +21,15 @@ int main(){
     World world(importFileName, true);
     std::cout << "MINlen = "<< world.getEdgePool().minEdgeLen << std::endl;
     int taskType = json_root.get("taskType", 1).asInt();
+    double finalTime = json_root.get("finalTime", 0.1).asDouble();
+    bool debugDivergence = json_root.get("debugDivergence", false).asBool();
     // world.display();
     //std::cin.get();
     omp_set_num_threads(omp_get_max_threads());
     MHDSolver2D solver(world);
     solver.task_type = taskType;
+    solver.finalTime = finalTime;
+    solver.debugDivergence = debugDivergence;
     solver.runSolver();
     std::cout << "solver complete" << std::endl;
 
