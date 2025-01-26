@@ -92,38 +92,94 @@ double MHDSolver2D::tau_from_cfl2D(const double& sigma, const double& min_h, std
 
 
 void MHDSolver2D::setInitElemUs() {
-    /*rho  u   v   w   p   Bx   By   Bz gam_hcr*/
-    std::vector<double> BrioWu_L1{1.0,   0.0, 0.0, 0.0, 1.0, 0.75, 1.0, 0.0, gam_hcr};
-    std::vector<double> BrioWu_R1{0.125, 0.0, 0.0, 0.0, 0.1, 0.75, -1.0, 0.0, gam_hcr};
-    ElementPool ep = geometryWorld.getElementPool();
-    initElemUs.resize(ep.elCount, std::vector<double>(8, 0.0));
-    for(const auto& elem: ep.elements){
-        std::vector<double> centroid = elem.centroid2D;
-        int elInd = elem.ind;
-        if(centroid[0] < 0.5){
-            initElemUs[elInd] = state_from_primitive_vars(BrioWu_L1);
+    // Brio-Wu problem
+    if(task_type == 1) {
+        std::cout << "SOLVING TASKTYPE 1 (BRIO-WU TEST)" << std::endl;
+        /*rho  u   v   w   p   Bx   By   Bz gam_hcr*/
+        std::vector<double> BrioWu_L1{1.0, 0.0, 0.0, 0.0, 1.0, 0.75, 1.0, 0.0, gam_hcr};
+        std::vector<double> BrioWu_R1{0.125, 0.0, 0.0, 0.0, 0.1, 0.75, -1.0, 0.0, gam_hcr};
+        ElementPool ep = geometryWorld.getElementPool();
+        initElemUs.resize(ep.elCount, std::vector<double>(8, 0.0));
+        for (const auto &elem: ep.elements) {
+            std::vector<double> centroid = elem.centroid2D;
+            int elInd = elem.ind;
+            if (centroid[0] < 0.5) {
+                initElemUs[elInd] = state_from_primitive_vars(BrioWu_L1);
+            } else {
+                initElemUs[elInd] = state_from_primitive_vars(BrioWu_R1);
+            }
         }
-        else {
-            initElemUs[elInd] = state_from_primitive_vars(BrioWu_R1);
+        EdgePool edgp = geometryWorld.getEdgePool();
+        initBns.resize(edgp.edgeCount, 0.0);
+        initEdgeUs.resize(edgp.edgeCount, std::vector<double>(8, 0.0));
+        for (const auto &edge: edgp.edges) {
+            std::vector<double> midP = edge.midPoint;
+            int edgeInd = edge.ind;
+            std::vector<double> normal = edge.normalVector;
+            std::vector<double> state;
+            if (midP[0] < 0.5) {
+                state = state_from_primitive_vars(BrioWu_L1);
+            } else {
+                state = state_from_primitive_vars(BrioWu_R1);
+            }
+            double Bn = state[5] * normal[0] + state[6] * normal[1];
+            initBns[edgeInd] = Bn;
+            initEdgeUs[edgeInd] = state;
         }
     }
-    EdgePool edgp = geometryWorld.getEdgePool();
-    //initBns.resize(edgp.edgeCount, 0.0);
-    initEdgeUs.resize(edgp.edgeCount, std::vector<double>(8, 0.0));
-    for(const auto& edge: edgp.edges){
-        std::vector<double> midP = edge.midPoint;
-        int edgeInd = edge.ind;
-        std::vector<double> normal = edge.normalVector;
-        std::vector<double> state;
-        if(midP[0] < 0.5){
-            state = state_from_primitive_vars(BrioWu_L1);
+    // alfven wave test
+    else if(task_type == 2){
+        std::cout << "SOLVING TASKTYPE 2 (ALFVEN WAVE TEST)" << std::endl;
+        double r = 6.0;
+        double nx = 1.0 / std::sqrt(r * r + 1);
+        double ny = r / std::sqrt(r * r + 1);
+        double rho0 = 1.0;
+        double p0 = 1.0;
+        double v0 = 0.0;
+        double B0 = 1.0;
+        double xi = 0.2;
+        gam_hcr = 5.0/3.0;
+        cflNum = 0.4;
+        //TODO : implement periodic boundary conditions
+        // TODO: generate 1/20 net of triangulars in domain [-6/2, 6/2] x [-6/2, 6/2]
+        ElementPool ep = geometryWorld.getElementPool();
+        EdgePool edgp = geometryWorld.getEdgePool();
+        initElemUs.resize(ep.elCount, std::vector<double>(8, 0.0));
+        initEdgeUs.resize(edgp.edgeCount, std::vector<double>(8, 0.0));
+        initBns.resize(edgp.edgeCount, 0.0);
+
+        for (const auto &elem: ep.elements) {
+            std::vector<double> centroid = elem.centroid2D;
+            double x = centroid[0];
+            double y = centroid[1];
+            double phase = 2.0 * M_PI / ny * (nx * x + ny * y);
+            double u_0 = v0 * nx - xi * ny * std::cos(phase);
+            double v_0 = v0 * ny + xi * nx * std::cos(phase);
+            double w_0 = xi * std::sin(phase);
+            double Bx_0 = B0 * nx + xi * ny * std::sqrt(4 * M_PI * rho0) * std::cos(phase);
+            double By_0 = B0 * ny - xi * nx * std::sqrt(4 * M_PI * rho0) * std::cos(phase);
+            double Bz_0 = - xi * std::sqrt(4 * M_PI * rho0) * std::sin(phase);
+            initElemUs[elem.ind] = state_from_primitive_vars(rho0, u_0, v_0, w_0, p0, Bx_0, By_0, Bz_0, gam_hcr);
         }
-        else{
-            state = state_from_primitive_vars(BrioWu_R1);
+
+        for(const auto &edge: edgp.edges){
+            if(edge.ind >= initEdgeUs.size() ){
+                std::cout << edge.ind << std::endl;
+            }
+            double x = edge.midPoint[0];
+            double y = edge.midPoint[1];
+            double phase = 2.0 * M_PI / ny * (nx * x + ny * y);
+            double u_0 = v0 * nx - xi * ny * std::cos(phase);
+            double v_0 = v0 * ny + xi * nx * std::cos(phase);
+            double w_0 = xi * std::sin(phase);
+            double Bx_0 = B0 * nx + xi * ny * std::sqrt(4 * M_PI * rho0) * std::cos(phase);
+            double By_0 = B0 * ny - xi * nx * std::sqrt(4 * M_PI * rho0) * std::cos(phase);
+            double Bz_0 = - xi * std::sqrt(4 * M_PI * rho0) * std::sin(phase);
+            initEdgeUs[edge.ind] = state_from_primitive_vars(rho0, u_0, v_0, w_0, p0, Bx_0, By_0, Bz_0, gam_hcr);
+            double Bn = Bx_0 * edge.normalVector[0] + By_0 * edge.normalVector[1];
+            initBns[edge.ind] = Bn;
         }
-        double Bn = state[5] * normal[0] + state[6] * normal[1];
-        initBns[edgeInd] = Bn;
-        initEdgeUs[edgeInd] = state;
+        std::cout << "ALL GOOD" << std::endl;
     }
 }
 

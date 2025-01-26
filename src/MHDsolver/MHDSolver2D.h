@@ -23,6 +23,8 @@ public:
     double cflNum = 0.3; // число Куранта
     int MAX_ITERATIONS = 100000;//310
 
+    int task_type = 1;
+
     //states
     std::vector<std::vector<double>> nodeUs; // state U in nodes
     std::vector<std::vector<double>> elemUs; // state U in elements

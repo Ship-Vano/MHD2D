@@ -222,6 +222,9 @@ NeighbourService::NeighbourService(const NodePool& np, const ElementPool& ep, co
     edgeToElements.reserve(edgePool.edgeCount);
     elementToElements.reserve(ep.elCount);
     nodeToEdgesMap.reserve(np.nodeCount);
+    boundaryNodeLeftToRight.reserve(np.nodeCount / 4);
+    boundaryNodeTopToBottom.reserve(np.nodeCount / 4);
+
     // Parallelize node-to-elements and edge-to-elements population
 #pragma omp parallel for
     for (size_t i = 0; i < ep.elements.size(); ++i) {
@@ -411,7 +414,7 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
             }
         }
 #pragma omp parallel for
-        for (size_t i = 0; i < ep.elements.size(); ++i) {
+        for (int i = 0; i < ep.elements.size(); ++i) {
             const auto &element = ep.elements[i];
             for (int edgeIndex: element.edgeIndexes) {
 #pragma omp critical(edgeToElements)
@@ -423,7 +426,7 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
 
         // Parallelize element-to-element connections
 #pragma omp parallel for
-        for (size_t i = 0; i < ep.elements.size(); ++i) {
+        for (int i = 0; i < ep.elCount; ++i) {
             const auto& element = ep.elements[i];
             std::unordered_set<int> connectedElements;
 
@@ -438,6 +441,121 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
                 ns.elementToElements[element.ind] = std::move(connectedElements);
             }
         }
+
+        std::cout << "Analyzing boundaries...." << std::endl;
+        minX = np.getNode(0).x;
+        maxX = np.getNode(0).x;
+        maxY = np.getNode(0).y;
+        minY = np.getNode(0).y;
+        // define the domain [minX, maxX] x [minY, maxY]
+        for (const auto& node: np.nodes) {
+            if(node.x > maxX){
+                maxX = node.x;
+            }
+            else if(node.x < minX){
+                maxX = node.x;
+            }
+            if(node.y > maxY){
+                maxY = node.y;
+            }
+            else if(node.y < minY) {
+                minY = node.y;
+            }
+        }
+
+        //gather boundary nodes
+        for(const auto& node: np.nodes){
+            if(std::abs(node.x - maxX) < 1e-15){
+                boundaryRightNodes.push_back(node.ind);
+            }
+            else if(std::abs(node.x - minX) < 1e-15){
+                boundaryLeftNodes.push_back(node.ind);
+            }
+            if(std::abs(node.y - maxY) < 1e-15){
+                boundaryTopNodes.push_back(node.ind);
+            }
+            else if(std::abs(node.y - minY) < 1e-15){
+                boundaryBottomNodes.push_back(node.ind);
+            }
+        }
+
+        // gather boundary node-to-node connections
+        if(boundaryTopNodes.size() == boundaryBottomNodes.size()){
+            std::cout << "Top corresponds to Bot"<< std::endl;
+            for(const auto& indTop: boundaryTopNodes){
+                const auto nodeTop = np.getNode(indTop);
+                ns.boundaryNodeTopToBottom[nodeTop.ind] = -1;
+                for(const auto& indBot: boundaryBottomNodes){
+                    const auto nodeBot = np.getNode(indBot);
+                    if(std::abs(nodeTop.x - nodeBot.x) < 1e-10){
+                        ns.boundaryNodeTopToBottom[nodeTop.ind] = nodeBot.ind;
+                    }
+                }
+                if( ns.boundaryNodeTopToBottom[nodeTop.ind] == -1){
+                    std::cerr << "Couldn't find the correspondig node!" << std::endl;
+                }
+            }
+        }
+        else{
+            std::cerr << "Top doesn't correspond to Bot"<< std::endl;
+        }
+        if(boundaryLeftNodes.size() == boundaryRightNodes.size()){
+            std::cout << "Left corresponds to Right"<< std::endl;
+            for(const auto& indLeft: boundaryLeftNodes){
+                const auto nodeLeft = np.getNode(indLeft);
+                ns.boundaryNodeLeftToRight[nodeLeft.ind] = -1;
+                for(const auto& indRight: boundaryRightNodes){
+                    const auto nodeRight = np.getNode(indRight);
+                    if(std::abs(nodeLeft.y - nodeRight.y) < 1e-8){
+                        ns.boundaryNodeLeftToRight[nodeLeft.ind] = nodeRight.ind;
+                    }
+                }
+                if( ns.boundaryNodeLeftToRight[nodeLeft.ind] == -1){
+                    std::cerr << "Couldn't find the correspondig node!" << std::endl;
+                }
+            }
+        }
+        else{
+            std::cerr << "Left doesn't correspond to Right!"<< std::endl;
+        }
+
+        //gather boundary edges and elems
+        for(const auto& edge: edgp.edges){
+            if(edge.neighbourInd1 == -1) {
+                if (ns.boundaryNodeTopToBottom.count(edge.nodeInd1) == 1  && \
+                    ns.boundaryNodeTopToBottom.count(edge.nodeInd2) == 1){
+                    //corresponding edge
+                    ns.boundaryEdgeTopToBottom[edge.ind] = -1;
+                    for(const auto& ind1:ns.nodeToEdgesMap[ns.boundaryNodeTopToBottom[edge.nodeInd1]]){
+                        for(const auto& ind2:ns.nodeToEdgesMap[ns.boundaryNodeTopToBottom[edge.nodeInd2]]){
+                            if(ind1 == ind2){
+                                ns.boundaryEdgeTopToBottom[edge.ind] = ind1;
+                                ns.boundaryElemTopToBottom[edge.neighbourInd1] = ep.elements[edgp.edges[ind1].neighbourInd1].ind;
+                            }
+                        }
+                    }
+                    if(ns.boundaryEdgeTopToBottom[edge.ind] == -1){
+                        std::cerr << "Couldn't find a corresponding edge top-bot!" << std::endl;
+                    }
+                }
+                else if(ns.boundaryNodeLeftToRight.count(edge.nodeInd1) == 1 &&  \
+                    ns.boundaryNodeLeftToRight.count(edge.nodeInd2) == 1){
+                    ns.boundaryEdgeLeftToRight[edge.ind] = -1;
+                    for(const auto& ind1:ns.nodeToEdgesMap[ns.boundaryNodeLeftToRight[edge.nodeInd1]]){
+                        for(const auto& ind2:ns.nodeToEdgesMap[ns.boundaryNodeLeftToRight[edge.nodeInd2]]){
+                            if(ind1 == ind2){
+                                ns.boundaryEdgeLeftToRight[edge.ind] = ind1;
+                                ns.boundaryElemLeftToRight[edge.neighbourInd1] = ep.elements[edgp.edges[ind1].neighbourInd1].ind;
+                            }
+                        }
+                    }
+                    if(ns.boundaryEdgeLeftToRight[edge.ind] == -1){
+                        std::cerr << "Couldn't find a corresponding edge left-right!" << std::endl;
+                    }
+                }
+            }
+        }
+
     }
 }
 
@@ -604,6 +722,45 @@ void World::exportToFile(const string &filename) const{
         }
     }
 
+    // Export boundaries
+    int boundaryNodeLeftToRight_size =  ns.boundaryNodeLeftToRight.size();
+    file.write(reinterpret_cast<const char*>(&boundaryNodeLeftToRight_size), sizeof(boundaryNodeLeftToRight_size));
+    for (const auto& [nodeLeft, nodeRight] : ns.boundaryNodeLeftToRight) {
+        file.write(reinterpret_cast<const char*>(&nodeLeft), sizeof(nodeLeft));
+        file.write(reinterpret_cast<const char*>(&nodeRight), sizeof(nodeRight));
+    }
+    int boundaryNodeTopToBottom_size =  ns.boundaryNodeTopToBottom.size();
+    file.write(reinterpret_cast<const char*>(&boundaryNodeTopToBottom_size), sizeof(boundaryNodeTopToBottom_size));
+    for (const auto& [nodeTop, nodeBot] : ns.boundaryNodeTopToBottom) {
+        file.write(reinterpret_cast<const char*>(&nodeTop), sizeof(nodeTop));
+        file.write(reinterpret_cast<const char*>(&nodeBot), sizeof(nodeBot));
+    }
+    // edges
+    int boundaryEdgeLeftToRight_size =  ns.boundaryEdgeLeftToRight.size();
+    file.write(reinterpret_cast<const char*>(&boundaryEdgeLeftToRight_size), sizeof(boundaryEdgeLeftToRight_size));
+    for (const auto& [edgeLeft, edgeRight] : ns.boundaryEdgeLeftToRight) {
+        file.write(reinterpret_cast<const char*>(&edgeLeft), sizeof(edgeLeft));
+        file.write(reinterpret_cast<const char*>(&edgeRight), sizeof(edgeRight));
+    }
+    int boundaryEdgeTopToBottom_size =  ns.boundaryEdgeTopToBottom.size();
+    file.write(reinterpret_cast<const char*>(&boundaryEdgeTopToBottom_size), sizeof(boundaryEdgeTopToBottom_size));
+    for (const auto& [edgeTop, edgeBot] : ns.boundaryEdgeTopToBottom) {
+        file.write(reinterpret_cast<const char*>(&edgeTop), sizeof(edgeTop));
+        file.write(reinterpret_cast<const char*>(&edgeBot), sizeof(edgeBot));
+    }
+    // elems
+    int boundaryElemLeftToRight_size =  ns.boundaryElemLeftToRight.size();
+    file.write(reinterpret_cast<const char*>(&boundaryElemLeftToRight_size), sizeof(boundaryElemLeftToRight_size));
+    for (const auto& [elemLeft, elemRight] : ns.boundaryElemLeftToRight) {
+        file.write(reinterpret_cast<const char*>(&elemLeft), sizeof(elemLeft));
+        file.write(reinterpret_cast<const char*>(&elemRight), sizeof(elemRight));
+    }
+    int boundaryElemTopToBottom_size =  ns.boundaryElemTopToBottom.size();
+    file.write(reinterpret_cast<const char*>(&boundaryElemTopToBottom_size), sizeof(boundaryElemTopToBottom_size));
+    for (const auto& [elemTop, elemBot] : ns.boundaryElemTopToBottom) {
+        file.write(reinterpret_cast<const char*>(&elemTop), sizeof(elemTop));
+        file.write(reinterpret_cast<const char*>(&elemBot), sizeof(elemBot));
+    }
 
     file.close();
     std::cout << "World exported to " << filename << std::endl;
@@ -743,6 +900,70 @@ void World::importFromFile(const string &filename) {
             file.read(reinterpret_cast<char*>(&edges[j]), sizeof(edges[j]));
         }
         ns.nodeToEdgesMap[node] = edges;
+    }
+
+    // Import boundaries
+    int boundaryNodeLeftToRight_size;
+    file.read(reinterpret_cast<char*>(&boundaryNodeLeftToRight_size), sizeof(boundaryNodeLeftToRight_size));
+    ns.boundaryNodeLeftToRight.clear();
+    for (int i = 0; i < boundaryNodeLeftToRight_size; ++i) {
+        int nodeLeft;
+        int nodeRight;
+        file.read(reinterpret_cast<char*>(&nodeLeft), sizeof(nodeLeft));
+        file.read(reinterpret_cast<char*>(&nodeRight), sizeof(nodeRight));
+        ns.boundaryNodeLeftToRight[nodeLeft] = nodeRight;
+    }
+    int boundaryNodeTopToBottom_size;
+    file.read(reinterpret_cast<char*>(&boundaryNodeTopToBottom_size), sizeof(boundaryNodeTopToBottom_size));
+    ns.boundaryNodeTopToBottom.clear();
+    for (int i = 0; i < boundaryNodeTopToBottom_size; ++i) {
+        int nodeTop;
+        int nodeBot;
+        file.read(reinterpret_cast<char*>(&nodeTop), sizeof(nodeTop));
+        file.read(reinterpret_cast<char*>(&nodeBot), sizeof(nodeBot));
+        ns.boundaryNodeTopToBottom[nodeTop] = nodeBot;
+    }
+    // edges
+    int boundaryEdgeLeftToRight_size;
+    file.read(reinterpret_cast<char*>(&boundaryEdgeLeftToRight_size), sizeof(boundaryEdgeLeftToRight_size));
+    ns.boundaryEdgeLeftToRight.clear();
+    for (int i = 0; i < boundaryEdgeLeftToRight_size; ++i) {
+        int EdgeLeft;
+        int EdgeRight;
+        file.read(reinterpret_cast<char*>(&EdgeLeft), sizeof(EdgeLeft));
+        file.read(reinterpret_cast<char*>(&EdgeRight), sizeof(EdgeRight));
+        ns.boundaryEdgeLeftToRight[EdgeLeft] = EdgeRight;
+    }
+    int boundaryEdgeTopToBottom_size;
+    file.read(reinterpret_cast<char*>(&boundaryEdgeTopToBottom_size), sizeof(boundaryEdgeTopToBottom_size));
+    ns.boundaryEdgeTopToBottom.clear();
+    for (int i = 0; i < boundaryEdgeTopToBottom_size; ++i) {
+        int EdgeTop;
+        int EdgeBot;
+        file.read(reinterpret_cast<char*>(&EdgeTop), sizeof(EdgeTop));
+        file.read(reinterpret_cast<char*>(&EdgeBot), sizeof(EdgeBot));
+        ns.boundaryEdgeTopToBottom[EdgeTop] = EdgeBot;
+    }
+    // elems
+    int boundaryElemLeftToRight_size;
+    file.read(reinterpret_cast<char*>(&boundaryElemLeftToRight_size), sizeof(boundaryElemLeftToRight_size));
+    ns.boundaryElemLeftToRight.clear();
+    for (int i = 0; i < boundaryElemLeftToRight_size; ++i) {
+        int ElemLeft;
+        int ElemRight;
+        file.read(reinterpret_cast<char*>(&ElemLeft), sizeof(ElemLeft));
+        file.read(reinterpret_cast<char*>(&ElemRight), sizeof(ElemRight));
+        ns.boundaryElemLeftToRight[ElemLeft] = ElemRight;
+    }
+    int boundaryElemTopToBottom_size;
+    file.read(reinterpret_cast<char*>(&boundaryElemTopToBottom_size), sizeof(boundaryElemTopToBottom_size));
+    ns.boundaryElemTopToBottom.clear();
+    for (int i = 0; i < boundaryElemTopToBottom_size; ++i) {
+        int ElemTop;
+        int ElemBot;
+        file.read(reinterpret_cast<char*>(&ElemTop), sizeof(ElemTop));
+        file.read(reinterpret_cast<char*>(&ElemBot), sizeof(ElemBot));
+        ns.boundaryElemTopToBottom[ElemTop] = ElemBot;
     }
 
     file.close();

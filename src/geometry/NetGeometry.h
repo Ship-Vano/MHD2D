@@ -100,12 +100,18 @@ public:
 
 class NeighbourService {
 public:
-    std::unordered_map<int, std::unordered_set<int>> nodeToElements; // Nodes -> Elements
-    std::unordered_map<int, std::vector<int>> nodeToEdgesMap;       //Nodes -> Edges
-    std::unordered_map<int, std::unordered_set<int>> edgeToElements; // Edges -> Elements
-    std::unordered_map<int, std::unordered_set<int>> elementToElements; // Elements -> Elements
+    std::unordered_map<int, std::unordered_set<int>> nodeToElements; // Nodes -> Elements (exp+)
+    std::unordered_map<int, std::vector<int>> nodeToEdgesMap;       //Nodes -> Edges  (exp+)
+    std::unordered_map<int, std::unordered_set<int>> edgeToElements; // Edges -> Elements (exp+)
+    std::unordered_map<int, std::unordered_set<int>> elementToElements; // Elements -> Elements (exp+)
     std::unordered_map<int, std::unordered_set<int>> elementToEdges; // Elements -> Edges
     std::unordered_map<int, std::unordered_set<int>> edgeToElementsMap; // Edges -> Elements
+    std::unordered_map<int, int> boundaryNodeLeftToRight; // left boundary nodes -> right boundary nodes
+    std::unordered_map<int, int> boundaryNodeTopToBottom; // top boundary nodes -> bot boundary nodes
+    std::unordered_map<int, int> boundaryEdgeLeftToRight; // left boundary edges -> right boundary edges
+    std::unordered_map<int, int> boundaryEdgeTopToBottom; // top boundary edges -> bot boundary edges
+    std::unordered_map<int, int> boundaryElemLeftToRight; // left boundary elements -> right boundary elements
+    std::unordered_map<int, int> boundaryElemTopToBottom; // top boundary elements -> bot boundary elements
     NeighbourService(const NodePool& np, const ElementPool& ep, const EdgePool& edgePool);
     std::vector<int> getEdgeNeighborsOfNode(int nodeIndex) const;
     std::unordered_set<int> getNodeNeighbours(int nodeIndex) const;
@@ -127,6 +133,22 @@ private:
     EdgePool edgp;
     NeighbourService ns;
 public:
+    double maxX;
+    double minX;
+    double maxY;
+    double minY;
+    std::vector<int> boundaryLeftNodes;
+    std::vector<int> boundaryLeftElems;
+    std::vector<int> boundaryLeftEdges;
+    std::vector<int> boundaryRightNodes;
+    std::vector<int> boundaryRightElems;
+    std::vector<int> boundaryRightEdges;
+    std::vector<int> boundaryTopNodes;
+    std::vector<int> boundaryTopElems;
+    std::vector<int> boundaryTopEdges;
+    std::vector<int> boundaryBottomNodes;
+    std::vector<int> boundaryBottomElems;
+    std::vector<int> boundaryBottomEdges;
     void setNodePool(const NodePool& np);
     NodePool getNodePool() const;
     void setElementPool(const ElementPool& ep);

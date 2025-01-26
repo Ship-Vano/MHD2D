@@ -20,10 +20,12 @@ int main(){
     std::cout << "Generating the world from " << importFileName << " file by reading it..." << std::endl;
     World world(importFileName, true);
     std::cout << "MINlen = "<< world.getEdgePool().minEdgeLen << std::endl;
+    int taskType = json_root.get("taskType", 1).asInt();
     // world.display();
     //std::cin.get();
     omp_set_num_threads(omp_get_max_threads());
     MHDSolver2D solver(world);
+    solver.task_type = taskType;
     solver.runSolver();
     std::cout << "solver complete" << std::endl;
 
