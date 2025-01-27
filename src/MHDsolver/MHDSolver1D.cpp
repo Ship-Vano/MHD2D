@@ -21,7 +21,7 @@ double pressure(const std::vector<double> &U, const double &gam_hcr){
     double Bx = U[5];
     double By = U[6];
     double Bz = U[7];
-    return (gam_hcr - 1) * (e - 0.5 * rho * (u * u + v * v + w * w) - 0.5*(Bx * Bx + By * By + Bz * Bz));
+    return (gam_hcr - 1.0) * (e - 0.5 * rho * (u * u + v * v + w * w) - 0.5*(Bx * Bx + By * By + Bz * Bz));
 }
 
 // Энергия
@@ -38,7 +38,7 @@ double ptotal(const double &p, const double &Bx, const double &By, const double 
 std::vector<double>
 state_from_primitive_vars(const double &rho, const double &u, const double &v, const double &w, const double &p,
                           const double &Bx, const double &By, const double &Bz, const double &gam_hcr) {
-    std::vector<double> U(8,0);
+    std::vector<double> U(8,0.0);
 
     double mx = rho * u;
     double my = rho * v;

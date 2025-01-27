@@ -20,8 +20,8 @@ public:
     double finalTime = 0.1;   // время окончания
     double tau = 0.0001; // шаг по времени
     double min_tau = 1e-6;
-    double cflNum = 0.4; // число Куранта
-    int MAX_ITERATIONS = 100000;
+    double cflNum = 0.1; // число Куранта
+    int MAX_ITERATIONS = 100;
 
     int task_type = 1;
     bool periodicBoundaries = false;
@@ -36,8 +36,8 @@ public:
     std::vector<double> initBns;
     std::vector<double> bNs; //Bns at edges
 
-    static std::vector<double> rotateStateFromNormalToAxisX(std::vector<double>& U, const std::vector<double>& n);
-    static std::vector<double> rotateStateFromAxisToNormal(std::vector<double>& U, const std::vector<double>& n);
+    std::vector<double> rotateStateFromNormalToAxisX(std::vector<double>& U, const std::vector<double>& n);
+    std::vector<double> rotateStateFromAxisToNormal(std::vector<double>& U, const std::vector<double>& n);
     double tau_from_cfl2D(const double& sigma, const double& hx, const double& hy, const std::vector<std::vector<double>>& states, const double& gam_hcr);
     double tau_from_cfl2D(const double& sigma, const double& min_h, std::vector<std::vector<double>>& edgeStates, const double& gam_hcr,
                           const EdgePool& ep);

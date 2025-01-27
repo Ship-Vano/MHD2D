@@ -42,6 +42,25 @@ std::vector<double> MHDSolver2D::rotateStateFromAxisToNormal(vector<double> &U, 
     res[2] = -U[1]*n[1] + U[2]*n[0];
     res[5] =  U[5]*n[0] + U[6]*n[1];
     res[6] = -U[5]*n[1] + U[6]*n[0];
+
+    double vel0 = std::sqrt(U[1] * U[1] + U[2] * U[2] + U[3] * U[3]);
+    double vel1 = std::sqrt(res[1] * res[1] + res[2] * res[2] + res[3] * res[3]);
+    if(std::abs(vel0 - vel1) > 1e-12){
+        std::cout << "Unequal velocity modules: " <<std::scientific << vel0 << " vs " << vel1 << std::endl;
+        std::cin.get();
+    }
+    double p = pressure(res, gam_hcr);
+    double energy_rotated = energy(gam_hcr, p, res[0], res[1]/res[0], res[2]/res[0], res[3]/res[0], res[5], res[6], res[7]);
+    if(std::abs(energy_rotated - U[4]) > 1e-12) {
+        std::cout << "Unequal energy modules: " << std::scientific << U[4] << " vs " << energy_rotated << std::endl;
+        std::cin.get();
+    }
+    double B0 = std::sqrt(U[5] * U[5] + U[6] * U[6] + U[7] * U[7]);
+    double B1 = std::sqrt(res[5] * res[5] + res[6] * res[6] + res[7] * res[7]);
+    if(std::abs(B0 - B1) > 1e-12){
+        std::cout << "Unequal B modules: " << std::scientific << B0 << " vs " << B1 << std::endl;
+        std::cin.get();
+    }
     return res;
 }
 
@@ -53,6 +72,7 @@ std::vector<double> MHDSolver2D::rotateStateFromNormalToAxisX(vector<double> &U,
     res[2] =  U[1]*n[1] + U[2]*n[0];
     res[5] =  U[5]*n[0] - U[6]*n[1];
     res[6] =  U[5]*n[1] + U[6]*n[0];
+
     return res;
 }
 
@@ -70,7 +90,7 @@ double MHDSolver2D::tau_from_cfl2D(const double& sigma, const double& hx, const 
         max_speed = 1e-14;
     }
     double tau = sigma / max_speed;
-    const double max_tau = 1e-2; // Define maximum allowable time step
+    const double max_tau = 1e-3; // Define maximum allowable time step
     return std::min(tau, max_tau);
 }
 
@@ -87,7 +107,7 @@ double MHDSolver2D::tau_from_cfl2D(const double& sigma, const double& min_h, std
     }
     max_speed = std::max(max_speed, 1e-14); // Prevent division by zero
     double optimal_tau = sigma * min_h / max_speed;
-    return std::min(optimal_tau, 1e-2);
+    return std::min(optimal_tau, 1e-3);
 }
 
 
@@ -202,7 +222,7 @@ void MHDSolver2D::runSolver() {
 
     for(const auto edge: edgePool.edges){
         double norm = std::sqrt(edge.normalVector[0]*edge.normalVector[0] + edge.normalVector[1]*edge.normalVector[1]);
-        if(std::abs(1-norm) > 1e-14){
+        if(std::abs(1.0-norm) > 1e-14){
             std::cout << "bad normal! " << std::abs(1-norm) << std::endl;
         }
     }
@@ -246,7 +266,7 @@ void MHDSolver2D::runSolver() {
             int neighbour1 = edge.neighbourInd1;
             int neighbour2 = edge.neighbourInd2;
             std::vector<double> U1 = rotateStateFromAxisToNormal(elemUs_prev[neighbour1], edge.normalVector);
-            if (neighbour2 > -1) {
+            if (neighbour2 != -1) {
                 std::vector<double> U2 = rotateStateFromAxisToNormal(elemUs_prev[neighbour2], edge.normalVector);
                 fluxes[edge.ind] = HLLD_flux(U1, U2, gam_hcr);
                 unrotated_fluxes[edge.ind] = HLLD_flux(U1, U2, gam_hcr);
@@ -267,16 +287,14 @@ void MHDSolver2D::runSolver() {
             std::vector<double> fluxSum(8, 0.0);
             for (int edgeIndex: elem.edgeIndexes) {
                 Edge edge_j = edgePool.edges[edgeIndex];
-                if(edge_j.neighbourInd2 != -1) {
-                    if (edge_j.neighbourInd1 == i) {
-                        fluxSum = fluxSum + edge_j.length * fluxes[edgeIndex];
-                    } else if (edge_j.neighbourInd2 == i) {
-                        fluxSum = fluxSum - edge_j.length * fluxes[edgeIndex];
-                    } else {
+                if (edge_j.neighbourInd1 == i) {
+                    fluxSum = fluxSum + edge_j.length * fluxes[edgeIndex];
+                } else if (edge_j.neighbourInd2 == i) {
+                    fluxSum = fluxSum - edge_j.length * fluxes[edgeIndex];
+                } else {
                         std::cerr << "No matching edge..." << std::endl;
-                    }
                 }
-                else{
+                if(edge_j.neighbourInd2 == -1){
                     is_boundary = true;
                 }
             }
