@@ -16,12 +16,12 @@ public:
 
     // physical quantities
     double gam_hcr = 2.0;
-    double startTime = 0;  // время отсчёта
+    double startTime = 0.0;  // время отсчёта
     double finalTime = 0.1;   // время окончания
     double tau = 0.0001; // шаг по времени
-    double min_tau = 1e-6;
-    double cflNum = 0.1; // число Куранта
-    int MAX_ITERATIONS = 100;
+    double min_tau = 1e-7;
+    double cflNum = 0.007; // число Куранта
+    int MAX_ITERATIONS = 1000000;
 
     int task_type = 1;
     bool periodicBoundaries = false;

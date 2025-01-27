@@ -43,24 +43,25 @@ std::vector<double> MHDSolver2D::rotateStateFromAxisToNormal(vector<double> &U, 
     res[5] =  U[5]*n[0] + U[6]*n[1];
     res[6] = -U[5]*n[1] + U[6]*n[0];
 
-    double vel0 = std::sqrt(U[1] * U[1] + U[2] * U[2] + U[3] * U[3]);
+    /*double vel0 = std::sqrt(U[1] * U[1] + U[2] * U[2] + U[3] * U[3]);
     double vel1 = std::sqrt(res[1] * res[1] + res[2] * res[2] + res[3] * res[3]);
     if(std::abs(vel0 - vel1) > 1e-12){
-        std::cout << "Unequal velocity modules: " <<std::scientific << vel0 << " vs " << vel1 << std::endl;
-        std::cin.get();
+        //std::cout << "Unequal velocity modules: " <<std::scientific << vel0 << " vs " << vel1 << std::endl;
+        //std::cin.get();
     }
     double p = pressure(res, gam_hcr);
-    double energy_rotated = energy(gam_hcr, p, res[0], res[1]/res[0], res[2]/res[0], res[3]/res[0], res[5], res[6], res[7]);
-    if(std::abs(energy_rotated - U[4]) > 1e-12) {
+    double energy_rotated = energy(gam_hcr, p, res[0], res[1]/res[0], res[2]/res[0], res[3]/res[0], res[5], res[6], res[7]);*/
+    //res[4] = energy_rotated;
+    /*if(std::abs(energy_rotated - U[4]) > 1e-12) {
         std::cout << "Unequal energy modules: " << std::scientific << U[4] << " vs " << energy_rotated << std::endl;
         std::cin.get();
-    }
-    double B0 = std::sqrt(U[5] * U[5] + U[6] * U[6] + U[7] * U[7]);
+    }*/
+    /*double B0 = std::sqrt(U[5] * U[5] + U[6] * U[6] + U[7] * U[7]);
     double B1 = std::sqrt(res[5] * res[5] + res[6] * res[6] + res[7] * res[7]);
     if(std::abs(B0 - B1) > 1e-12){
-        std::cout << "Unequal B modules: " << std::scientific << B0 << " vs " << B1 << std::endl;
-        std::cin.get();
-    }
+        //std::cout << "Unequal B modules: " << std::scientific << B0 << " vs " << B1 << std::endl;
+        //std::cin.get();
+    }*/
     return res;
 }
 
@@ -72,7 +73,9 @@ std::vector<double> MHDSolver2D::rotateStateFromNormalToAxisX(vector<double> &U,
     res[2] =  U[1]*n[1] + U[2]*n[0];
     res[5] =  U[5]*n[0] - U[6]*n[1];
     res[6] =  U[5]*n[1] + U[6]*n[0];
-
+    /*double p = pressure(res, gam_hcr);
+    double energy_rotated = energy(gam_hcr, p, res[0], res[1]/res[0], res[2]/res[0], res[3]/res[0], res[5], res[6], res[7]);
+    //res[4] = energy_rotated;*/
     return res;
 }
 
@@ -90,7 +93,7 @@ double MHDSolver2D::tau_from_cfl2D(const double& sigma, const double& hx, const 
         max_speed = 1e-14;
     }
     double tau = sigma / max_speed;
-    const double max_tau = 1e-3; // Define maximum allowable time step
+    const double max_tau = 1e-2; // Define maximum allowable time step
     return std::min(tau, max_tau);
 }
 
@@ -159,8 +162,8 @@ void MHDSolver2D::setInitElemUs() {
         double B0 = 1.0;
         double xi = 0.2;
         gam_hcr = 5.0/3.0;
-        cflNum = 0.4;
-        periodicBoundaries = false;
+        cflNum = 0.2;
+        periodicBoundaries = true;
         ElementPool ep = geometryWorld.getElementPool();
         EdgePool edgp = geometryWorld.getEdgePool();
         initElemUs.resize(ep.elCount, std::vector<double>(8, 0.0));
@@ -226,6 +229,10 @@ void MHDSolver2D::runSolver() {
             std::cout << "bad normal! " << std::abs(1-norm) << std::endl;
         }
     }
+    double divergence = computeDivergence(elemUs, edgePool);
+    if (divergence > 1e-10) {
+        std::cout << "Max divergence: " << divergence << std::endl;
+    }
 
     double h = edgePool.minEdgeLen;
     std::cout << "Min h = " << h << std::endl;
@@ -252,7 +259,7 @@ void MHDSolver2D::runSolver() {
             writeVTU("OutputData/tmpres.vtu", geometryWorld, elemUs);
         }
         if (debugDivergence) {
-            double divergence = computeDivergence(elemUs, edgePool);
+            divergence = computeDivergence(elemUs, edgePool);
             if (divergence > 1e-10) {
                 std::cout << "Max divergence: " << divergence << std::endl;
             }
@@ -378,9 +385,10 @@ void MHDSolver2D::runSolver() {
             if(edge.neighbourInd2 > -1) {
                 vector<double> state2 = elemUs[edge.neighbourInd2];
                 edgeUs[edge.ind] = 0.5 * (state1 + state2);
-                continue;
             }
-            edgeUs[edge.ind] = state1;
+            else {
+                edgeUs[edge.ind] = state1;
+            }
         }
 
         ++iterations;
