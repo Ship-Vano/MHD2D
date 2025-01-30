@@ -20,9 +20,9 @@ public:
     double finalTime = 0.1;   // время окончания
     double tau = 0.0001; // шаг по времени
     double min_tau = 1e-7;
-    double cflNum = 0.007; // число Куранта
+    double cflNum = 0.4; // число Куранта
     int MAX_ITERATIONS = 1000000;
-
+    int iterationsPerFrame = 10;
     int task_type = 1;
     bool periodicBoundaries = false;
     bool debugDivergence = false;

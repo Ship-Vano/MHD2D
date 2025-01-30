@@ -324,7 +324,7 @@ std::vector<double> HLLD_flux(const std::vector<double>& U_L, const std::vector<
     double pT_R = ptotal(p_R, Bx_R, By_R, Bz_R);
 
     double Bx = (Bx_L + Bx_R)/2;
-
+    //double Bx = Bx_L;
     //быстрые магнитозвуковые скорости на левом и правом концах
     double cf_L = cfast(U_L, gam_hcr);
     double cf_R = cfast(U_R, gam_hcr);
@@ -347,12 +347,12 @@ std::vector<double> HLLD_flux(const std::vector<double>& U_L, const std::vector<
     double SM_m_uL = SM - u_L;
 
     double rho_L_star = rho_L;
-    if(SL-SM != 0) {
+    if(std::abs(SL-SM) > 1e-15) {
         rho_L_star = rho_L * SL_m_uL / (SL - SM);
     }
 
     double rho_R_star = rho_R;
-    if(SR-SM != 0){
+    if(std::abs(SR-SM) > 1e-15){
         rho_R_star = rho_R * SR_m_uR / (SR - SM);
     }
 
@@ -366,10 +366,10 @@ std::vector<double> HLLD_flux(const std::vector<double>& U_L, const std::vector<
     double pT_L_star = pT_L;
     double v_L_star = v_L;
     double w_L_star = w_L;
-    double By_L_star = 0.;
-    double Bz_L_star = 0.;
+    double By_L_star = 0.0;
+    double Bz_L_star = 0.0;
     double denom_L = rho_L * SL_m_uL * (SL - SM) - Bx * Bx;
-    if(denom_L != 0.){
+    if(std::abs(denom_L) > 1e-15){
         pT_L_star = pT_star;
         u_L_star = SM;
         v_L_star = v_L - Bx * By_L * SM_m_uL/denom_L;
@@ -385,10 +385,10 @@ std::vector<double> HLLD_flux(const std::vector<double>& U_L, const std::vector<
     double pT_R_star = pT_R;
     double v_R_star = v_R;
     double w_R_star = w_R;
-    double By_R_star = 0.;
-    double Bz_R_star = 0.;
+    double By_R_star = 0.0;
+    double Bz_R_star = 0.0;
     double denom_R = rho_R * SR_m_uR * (SR - SM) - Bx * Bx;
-    if(denom_R != 0.){
+    if(std::abs(denom_R) > 1e-15){
         pT_R_star = pT_star;
         u_R_star = SM;
         v_R_star = v_R - Bx * By_R * SM_m_uR/denom_R;
@@ -399,15 +399,15 @@ std::vector<double> HLLD_flux(const std::vector<double>& U_L, const std::vector<
     }
     double e_R_star = (SR_m_uR *e_R - pT_R*u_R + pT_star*SM + Bx*(u_R * Bx_R + v_R * By_R + w_R * Bz_R - u_R_star*Bx - v_R_star*By_R_star - w_R_star*Bz_R_star))/(SR-SM);
 
-    if (SL > 0) {
+    if (SL > 0.0) {
 //!!!   //FL
         return MHD_flux(U_L, gam_hcr);
     }
-    else if (/*SL <= 0 &&*/ SL_star >= 0) {
+    else if (/*SL <= 0 &&*/ SL_star >= 0.0) {
 //!!!   //F*L
         return MHD_flux(rho_L_star, u_L_star, v_L_star, w_L_star, e_L_star, Bx, By_L_star, Bz_L_star, pT_L_star, gam_hcr);
     }
-    else if (/*SL_star <= 0 &&*/ SM >= 0) {
+    else if (/*SL_star <= 0 &&*/ SM >= 0.0) {
 //!!!   //F**L
         double u_L_2star = SM;
         double pT_L_2star = pT_L_star;
@@ -420,7 +420,7 @@ std::vector<double> HLLD_flux(const std::vector<double>& U_L, const std::vector<
         double e_L_2star = e_L_star - std::sqrt(rho_L_star)*(u_L_star * Bx + v_L_star * By_L_star + w_L_star * Bz_L_star - u_L_2star * Bx - v_L_2star * By_L_2star - w_L_2star * Bz_L_2star)*sign_Bx;
         return MHD_flux(rho_L_star, u_L_2star, v_L_2star, w_L_2star, e_L_2star, Bx, By_L_2star, Bz_L_2star, pT_L_2star, gam_hcr);
     }
-    else if (/*SM <= 0 &&*/ SR_star >= 0){
+    else if (/*SM <= 0 &&*/ SR_star >= 0.0){
 //!!!   //F**R
         double u_R_2star = SM;
         double pT_R_2star = pT_R_star;
@@ -433,7 +433,7 @@ std::vector<double> HLLD_flux(const std::vector<double>& U_L, const std::vector<
         double e_R_2star = e_R_star + std::sqrt(rho_R_star)*(u_R_star * Bx + v_R_star * By_R_star + w_R_star * Bz_R_star - u_R_2star * Bx - v_R_2star * By_R_2star - w_R_2star * Bz_R_2star)*sign_Bx;
         return MHD_flux(rho_R_star, u_R_2star, v_R_2star, w_R_2star, e_R_2star, Bx, By_R_2star, Bz_R_2star, pT_R_2star, gam_hcr);
     }
-    else if (/*SR_star <= 0 &&*/ SR >= 0){
+    else if (/*SR_star <= 0 &&*/ SR >= 0.0){
 //!!!   //F*R
         return MHD_flux(rho_R_star, u_R_star, v_R_star, w_R_star, e_R_star, Bx, By_R_star, Bz_R_star, pT_R_star, gam_hcr);
     }

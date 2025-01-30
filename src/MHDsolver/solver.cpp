@@ -23,6 +23,7 @@ int main(){
     int taskType = json_root.get("taskType", 1).asInt();
     double finalTime = json_root.get("finalTime", 0.1).asDouble();
     bool debugDivergence = json_root.get("debugDivergence", false).asBool();
+    int iterationsPerFrame = json_root.get("iterationsPerFrame", 10).asInt();
     // world.display();
     //std::cin.get();
     omp_set_num_threads(omp_get_max_threads());
@@ -30,6 +31,7 @@ int main(){
     solver.task_type = taskType;
     solver.finalTime = finalTime;
     solver.debugDivergence = debugDivergence;
+    solver.iterationsPerFrame = iterationsPerFrame;
     solver.runSolver();
     std::cout << "solver complete" << std::endl;
 

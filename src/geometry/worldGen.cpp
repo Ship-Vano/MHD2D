@@ -9,7 +9,7 @@
 #include <string>
 
 int main() {
-
+    omp_set_num_threads(1);
     //TODO: move it to the global config file
     std::string configPath = "InputData/netConfig.json";
     std::ifstream in(configPath, std::ios::in);
