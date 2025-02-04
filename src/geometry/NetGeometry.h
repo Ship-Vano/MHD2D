@@ -40,9 +40,9 @@ public:
     int nodeInd2; // номер второго узла
     int neighbourInd1; //номер первого соседнего элемента
     int neighbourInd2; //номер второго соседнего элемента
-    double length;
+    double length;  // длина
     std::vector<double> normalVector; // компоненты вектора нормали
-    std::vector<double> midPoint;
+    std::vector<double> midPoint; // центр ребра
     Edge(): ind(0), nodeInd1(0), nodeInd2(0),
               neighbourInd1(-1), neighbourInd2(-1), length(0.0),
               normalVector(2, 0.0), midPoint(2, 0.0) {}
@@ -57,8 +57,9 @@ public:
     int dim; // размерность (кол-во узлов)
     std::vector<int> nodeIndexes; //номера узлов
     std::vector<int> edgeIndexes; //номера рёбер
-    std::vector<double> centroid2D;
-    double area = 0.; //площадь
+    std::vector<double> centroid2D; // центр элемента
+    bool is_boundary = false;
+    double area = 0.0; //площадь
     Element() : ind(0), dim(0), area(0.0), centroid2D(2, 0.0) {}
     Element(const int index, const std::vector<int> &nIndexes, int size);
 };
@@ -66,22 +67,22 @@ public:
 // Набор узлов
 class NodePool {
 public:
-    int nodeCount;
-    std::vector<Node> nodes;
+    int nodeCount; // количество узлов в наборе
+    std::vector<Node> nodes; // узлы
 
     NodePool(int size, const std::vector<Node>& nodeVec);
     NodePool() : nodeCount(0), nodes() {} // Default constructor
 
-    Node getNode(int ind) const;
+    Node getNode(int ind) const; // получить узел по индексу
 };
 
 // Набор элементов
 class ElementPool {
 public:
-    int elCount;
-    bool isSquare;
-    bool isTriangular;
-    std::vector<Element> elements;
+    int elCount;  // количество элементов в наборе
+    bool isSquare; // флаг: черырёхугольные элементы
+    bool isTriangular; // флаг: треугольные элементы
+    std::vector<Element> elements; // элементы
 
     ElementPool(int nodesPerElement, int elCnt, const std::vector<Element>& elements);
     ElementPool() : elCount(0), isSquare(false), isTriangular(false), elements() {} // Default constructor
@@ -90,9 +91,9 @@ public:
 // Набор рёбер
 class EdgePool{
 public:
-    int edgeCount;
-    std::vector<Edge> edges;
-    double minEdgeLen;
+    int edgeCount; // количество рёбер
+    std::vector<Edge> edges; // рёбра
+    double minEdgeLen; // минимальная длина ребра
     EdgePool(int size, const std::vector<Edge>& edgeVec);
     EdgePool(const NodePool& np, ElementPool& ep);
     EdgePool() : edgeCount(0), edges(), minEdgeLen(1.0) {} // Default constructor
@@ -128,27 +129,27 @@ public:
 // Problem's World
 class World {
 private:
-    NodePool np;
-    ElementPool ep;
-    EdgePool edgp;
-    NeighbourService ns;
+    NodePool np; // набор узлов
+    ElementPool ep; // набор элементов
+    EdgePool edgp; // набор рёбер
+    NeighbourService ns; // сервис соседей
 public:
-    double maxX;
-    double minX;
-    double maxY;
-    double minY;
-    std::vector<int> boundaryLeftNodes;
-    std::vector<int> boundaryLeftElems;
-    std::vector<int> boundaryLeftEdges;
-    std::vector<int> boundaryRightNodes;
-    std::vector<int> boundaryRightElems;
-    std::vector<int> boundaryRightEdges;
-    std::vector<int> boundaryTopNodes;
-    std::vector<int> boundaryTopElems;
-    std::vector<int> boundaryTopEdges;
-    std::vector<int> boundaryBottomNodes;
-    std::vector<int> boundaryBottomElems;
-    std::vector<int> boundaryBottomEdges;
+    double maxX; // максимальное значение абсциссы
+    double minX; // минимальное значение абсциссы
+    double maxY; // максимальное значение ординаты
+    double minY; // минимальное значение ординаты
+    std::vector<int> boundaryLeftNodes; // индексы левых граничных узлов
+    std::vector<int> boundaryLeftElems; // индексы левых граничных элементов
+    std::vector<int> boundaryLeftEdges; // индексы левых граничных рёбер
+    std::vector<int> boundaryRightNodes; // индексы правых граничных узлов
+    std::vector<int> boundaryRightElems; // индексы правых граничных элементов
+    std::vector<int> boundaryRightEdges; // индексы правых граничных рёбер
+    std::vector<int> boundaryTopNodes; // индексы верхних граничных узлов
+    std::vector<int> boundaryTopElems; // индексы верхних граничных элементов
+    std::vector<int> boundaryTopEdges; // индексы верхних граничных рёбер
+    std::vector<int> boundaryBottomNodes; // индексы нижних граничных узлов
+    std::vector<int> boundaryBottomElems; // индексы нижних граничных элементов
+    std::vector<int> boundaryBottomEdges; // индексы нижних граничных рёбер
     void setNodePool(const NodePool& np);
     NodePool getNodePool() const;
     void setElementPool(const ElementPool& ep);
@@ -158,17 +159,18 @@ public:
     World(const std::string &fileName, const bool isRenderedBin);
     void display() const;
     NeighbourService& getNeighbourService();
-    void exportToFile(const std::string& filename) const;
-    void importFromFile(const std::string& filename);
+    void exportToFile(const std::string& filename) const; // экспорт в бинарный файл
+    void importFromFile(const std::string& filename); // импорт из файла узлов и элементов
 };
 
-double areaCalc(const Element& poly, const NodePool& nPool);
+double areaCalc(const Element& poly, const NodePool& nPool); // подсчёт площади элемента
 
-std::vector<double> getElementCentroid2D(const Element& poly, const NodePool& nPool);
+std::vector<double> getElementCentroid2D(const Element& poly, const NodePool& nPool); // подсчёт середины элемента
 
-std::vector<double> getMidPoint2D(const int nodeInd1, const int nodeInd2, const NodePool& nPool);
+std::vector<double> getMidPoint2D(const int nodeInd1, const int nodeInd2, const NodePool& nPool); // подсчёт середины отрезка, соединяющего два узла
 
-double getDistance(const int nodeInd1, const int nodeInd2, const NodePool& nPool);
+double getDistance(const int nodeInd1, const int nodeInd2, const NodePool& nPool); // подсчёт расстояния между двумя узлами
 
 void setNeighbourEdge(Element& el, const int edgeInd);
+
 #endif // MAGNETTOPRJCT_NETGEOMETRY_H

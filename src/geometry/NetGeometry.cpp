@@ -5,24 +5,31 @@
 
 #include "NetGeometry.h"
 
+// узел: конструктор по умолчанию
 Node::Node(int index, double xCoord, double yCoord, double zCoord)
         : ind(index), x(xCoord), y(yCoord), z(zCoord) {}
 
+// элемент: конструктор по умолчанию
 Element::Element(const int index, const std::vector<int> &nIndexes, int size)
         : ind(index), nodeIndexes(nIndexes), dim(size), edgeIndexes(), centroid2D() {
 }
 
+// ребро: конструктор по умолчанию
 Edge::Edge(int index, int node1, int node2, int neighbor1, int neighbor2, double len, const std::vector<double>& normalVec, const std::vector<double>& midP)
         : ind(index), nodeInd1(node1), nodeInd2(node2),
           neighbourInd1(neighbor1), neighbourInd2(neighbor2), length(len), normalVector(normalVec), midPoint(midP) {}
 
-
+// подсчёт площади элемента
 double areaCalc(const Element& poly, const NodePool& nPool) {
     int dim = poly.dim;
+
+    // получаем узлы элемента
     std::vector<Node> polyNodes;
     for(int i = 0; i < dim; ++i){
         polyNodes.push_back(nPool.nodes[poly.nodeIndexes[i]]);
     }
+
+    // вычисляем площадь элемента
     double res = 0.0;
     double iSum = 0.0;
     double jSum = 0.0;
@@ -42,6 +49,7 @@ double areaCalc(const Element& poly, const NodePool& nPool) {
     return res;
 }
 
+// точка середины элемента
 std::vector<double> getElementCentroid2D(const Element &poly, const NodePool &nPool) {
     int dim = poly.dim;
     std::vector<double> centroid(2, 0.0);
@@ -55,6 +63,7 @@ std::vector<double> getElementCentroid2D(const Element &poly, const NodePool &nP
     return centroid;
 }
 
+// точка середины отрезка между двумя узлами
 std::vector<double> getMidPoint2D(const int nodeInd1, const int nodeInd2, const NodePool &nPool) {
     Node node1 = nPool.getNode(nodeInd1);
     Node node2 = nPool.getNode(nodeInd2);
@@ -62,20 +71,23 @@ std::vector<double> getMidPoint2D(const int nodeInd1, const int nodeInd2, const 
     return mid;
 }
 
+// расстояние между узлами
 double getDistance(const int nodeInd1, const int nodeInd2, const NodePool& nPool){
     Node node1 = nPool.getNode(nodeInd1);
     Node node2 = nPool.getNode(nodeInd2);
     return std::sqrt( (node1.x - node2.x)*(node1.x - node2.x) + (node1.y - node2.y)*(node1.y - node2.y) + (node1.z - node2.z)*(node1.z - node2.z) );
 }
 
-
+// набор узлов: конструктор по умолчанию
 NodePool::NodePool(int size, const std::vector<Node>& nodeVec)
         : nodeCount(size), nodes(nodeVec) {}
 
+// получить узел из набора по индексу
 Node NodePool::getNode(int ind) const{
     return nodes[ind];
 }
 
+// набор рёбер: конструктор из вектора рёбер
 EdgePool::EdgePool(int size, const std::vector<Edge>& edgeVec)
         : edgeCount(size), edges(edgeVec) {
     minEdgeLen = edgeVec[0].length;
@@ -87,17 +99,16 @@ EdgePool::EdgePool(int size, const std::vector<Edge>& edgeVec)
 }
 
 
-// Function to calculate the 2D normal vector between two nodes
+// нормаль к вектору между двумя узлами
 std::vector<double> calculateNormalVector2D(const Node& node1, const Node& node2) {
-    // Calculate the direction vector from node1 to node2
+    // координаты вектора
     double dx = node2.x - node1.x;
     double dy = node2.y - node1.y;
 
-    // Calculate the normal vector (perpendicular to the direction vector)
-    // Counterclockwise 90-degree rotation
+    // нормаль к вектору (поворот на 90 градусов против часовой стрелки)
     std::vector<double> normal = {-dy, dx};
 
-    // Optionally, normalize the normal vector
+    // нормировка
     double length = std::sqrt(normal[0] * normal[0] + normal[1] * normal[1]);
     if (length > 0) {
         normal[0] /= length;
@@ -106,25 +117,26 @@ std::vector<double> calculateNormalVector2D(const Node& node1, const Node& node2
     return normal;
 }
 
-////ЖЁТСКИЙ КОСТЫЛЬ, УБЕРУ ПОТОМ , КОГДА БУДЕТ МЕСТО НА BOOST
+                                                                                                                                                                                        ////ЖЁТСКИЙ КОСТЫЛЬ, УБЕРУ ПОТОМ , КОГДА БУДЕТ МЕСТО НА BOOST
+    // хэширование пары (для создания map из пар)
     namespace std {
-    template <typename T1, typename T2>
-    struct hash<std::pair<T1, T2>> {
-        size_t operator()(const std::pair<T1, T2>& p) const {
-            auto h1 = std::hash<T1>{}(p.first);
-            auto h2 = std::hash<T2>{}(p.second);
-            return h1 ^ (h2 << 1); // Combine the two hash values
-        }
-    };
-}
+        template <typename T1, typename T2>
+        struct hash<std::pair<T1, T2>> {
+            size_t operator()(const std::pair<T1, T2>& p) const {
+                auto h1 = std::hash<T1>{}(p.first);
+                auto h2 = std::hash<T2>{}(p.second);
+                return h1 ^ (h2 << 1); // Combine the two hash values
+            }
+        };
+    }
+
+// набор рёбер: конструктор из набора узлов и набора элементов
 EdgePool::EdgePool(const NodePool& np, ElementPool& ep) {
-    //<key type, calue type, hash function>
-    // is a hash function specifically designed for hashing std::pair<int, int> objects. The hash value generated by this function is used to distribute the pairs across the hash table.
-    //!!!!!!!!!TODO:убрать бред с кастомом и добавить boost:hash
     std::unordered_map<std::pair<int, int>, std::unordered_set<int>, std::hash<std::pair<int, int>>> edgeMap;
     int edgeIndex = 0;
     minEdgeLen = 10000000.0;
-    // Loop through each element to create edges
+
+    // проходимся по каждому элементу
     for (const auto& element : ep.elements) {
         int dim = element.dim;
         /*if(dim != 3){
@@ -132,19 +144,21 @@ EdgePool::EdgePool(const NodePool& np, ElementPool& ep) {
         }*/
         for (int i = 0; i < dim; ++i) {
             int node1 = element.nodeIndexes[i];
-            int node2 = element.nodeIndexes[(i + 1) % dim]; // Ensure cyclical connectivity
-            if (node1 > node2) std::swap(node1, node2); // Ensure consistent ordering
-            auto edgeKey = std::make_pair(node1, node2);
-            edgeMap[edgeKey].insert(element.ind); // Insert element index into the unordered_set for this edge
+            int node2 = element.nodeIndexes[(i + 1) % dim]; // для цикличности связей (0->1; 1->2; 2->0)
+            if (node1 > node2) std::swap(node1, node2); // упорядочивание по возрастанию
+            auto edgeKey = std::make_pair(node1, node2); // ключ для ребра (по двум узлам находим элементы-соседей)
+            edgeMap[edgeKey].insert(element.ind); // вставляем элемент в map
         }
     }
 
-    // Now iterate through the edgeMap to create edges
+    // проходимся по map из рёбер
     for (const auto& edgeEntry : edgeMap) {
-        int node1 = edgeEntry.first.first;
-        int node2 = edgeEntry.first.second;
-        const auto& neighbors = edgeEntry.second; // Get the set of neighboring elements
-        int neighbor1 = -1, neighbor2 = -1;
+        int node1 = edgeEntry.first.first; // первый узел ребра
+        int node2 = edgeEntry.first.second; // второй узел ребра
+        const auto& neighbors = edgeEntry.second; // соседние элементы
+        int neighbor1 = -1, neighbor2 = -1; // индексы соседних элементов
+
+        //проходимся по set из элементов, получаем индексы (если они есть)
         auto it = neighbors.begin();
         if (it != neighbors.end()) {
             neighbor1 = *it;
@@ -153,25 +167,40 @@ EdgePool::EdgePool(const NodePool& np, ElementPool& ep) {
                 neighbor2 = *it;
             }
         }
-        int orientation = 1;
+
+        // делаем индекс первого соседа граничного ребра существующим (2-й сосед = -1, тк его нет)
         if(neighbor1 == -1){
             std::swap(neighbor1,neighbor2);
         }
+
+        // нормаль к ребру
         std::vector<double> normalVector = calculateNormalVector2D(np.getNode(node1), np.getNode(node2));
+
+        // середина ребра
         std::vector<double> edgeMid = getMidPoint2D(node1, node2, np);
         //std::cout << "CENTROID OF THE EL numb " << neighbor1 << " , centroid = (" << getElementCentroid2D(ep.elements[neighbor1], np)[0] << ", " <<getElementCentroid2D(ep.elements[neighbor1], np)[1]  <<") " << std::endl;
+
+        // вектор, соединяющий середину элемента и середину ребра
         std::vector<double> neighbour1ToEdgeMidVector =
                     edgeMid - ep.elements[neighbor1].centroid2D;
-        orientation = normalVector * neighbour1ToEdgeMidVector > 0 ? 1 : -1;
+
+        // ориентвция ребра
+        int orientation = 1;
+        orientation = normalVector * neighbour1ToEdgeMidVector > 0 ? 1 : -1; // скалярное произведение нормали и вектора центр-середина
+                                                                                                            //     nei1->nei2
+        // корректируем нормаль  (нормаль будет идти от первого соседа ко второму)                                  <| -> |>
         if(orientation < 0){
             normalVector = normalVector * (-1);
             orientation = 1;
         }
 
-        const auto &elementNodes = ep.elements[neighbor1].nodeIndexes;
-        auto itNode1 = std::find(elementNodes.begin(), elementNodes.end(), node1);
-        auto itNode2 = std::find(elementNodes.begin(), elementNodes.end(), node2);
+        // меняем порядок узлов, составляющих ребро для обеспечения правильной ориентации
+        const auto &elementNodes = ep.elements[neighbor1].nodeIndexes; // узлы первого соседа
+        auto itNode1 = std::find(elementNodes.begin(), elementNodes.end(), node1); // позиция первого узла в векторе индексов элемента (первый сосед)
+        auto itNode2 = std::find(elementNodes.begin(), elementNodes.end(), node2); // позиция второго узла в векторе индексов элемента (первый сосед)
 
+        // индексы узлов в элементе пронумерованы против часовой стрелки.
+        // делаем проверку: первый узел ребра идёт после второго узла ребра в элементе (первом соседе), то меняем их местами в ребре
         if ((itNode1 > itNode2) && !(itNode1 == elementNodes.end()-1 && itNode2 == elementNodes.begin()) ) {
             std::swap(node1, node2); // Swap nodes to ensure counterclockwise order
             //std::cout << "swap1 EdgeIndex is " << edgeIndex << std::endl;
@@ -181,19 +210,22 @@ EdgePool::EdgePool(const NodePool& np, ElementPool& ep) {
             //std::cout << "swap2 EdgeIndex is " << edgeIndex << std::endl;
         }
 
+        // вычисляем длину ребра
         double len = getDistance(node1, node2, np);
         if(len < minEdgeLen && len > 1e-16){
             minEdgeLen = len;
         }
-        // Create the edge and add it to the list
+
+        // создаём ребро и помещаем в общий набор
         edges.emplace_back(edgeIndex, node1, node2, neighbor1, neighbor2, len, normalVector, edgeMid);
 
         ++edgeIndex;
     }
 
-    edgeCount = edges.size();  // Set the total number of edges
+    edgeCount = edges.size();  // задаём общее количество рёбер
 }
 
+// набор элементов: конструктор из вектора элементов
 ElementPool::ElementPool(int nodesPerElement, int elCnt, const std::vector<Element>& elems)
         : elCount(elCnt), isSquare(nodesPerElement == SQUARE_ELEMENT_NODE_COUNT),
           isTriangular(nodesPerElement == TRIANGULAR_ELEMENT_NODE_COUNT), elements(elems) {
@@ -215,9 +247,10 @@ ElementPool World::getElementPool() const {
     return ep;
 }
 
+
 /*NEIGHBOUR SERVICE*/
 NeighbourService::NeighbourService(const NodePool& np, const ElementPool& ep, const EdgePool& edgePool) {
-    // Reserve space for maps
+    // выделяем место под maps
     nodeToElements.reserve(np.nodeCount);
     edgeToElements.reserve(edgePool.edgeCount);
     elementToElements.reserve(ep.elCount);
@@ -225,12 +258,12 @@ NeighbourService::NeighbourService(const NodePool& np, const ElementPool& ep, co
     boundaryNodeLeftToRight.reserve(np.nodeCount / 4);
     boundaryNodeTopToBottom.reserve(np.nodeCount / 4);
 
-    // Parallelize node-to-elements and edge-to-elements population
+    // map узел -> соседи-элементы
 #pragma omp parallel for
     for (size_t i = 0; i < ep.elements.size(); ++i) {
         const auto& element = ep.elements[i];
 
-        // Use OpenMP critical section for thread-safe map updates
+        // thread-safe update
         for (int nodeIndex : element.nodeIndexes) {
 #pragma omp critical(nodeToElements)
             {
@@ -240,7 +273,7 @@ NeighbourService::NeighbourService(const NodePool& np, const ElementPool& ep, co
 
     }
 
-    // Parallelize node-to-edges map population
+    // map узел -> соседи-рёбра
 #pragma omp parallel for
     for (size_t edgeIndex = 0; edgeIndex < edgePool.edges.size(); ++edgeIndex) {
         const auto& edge = edgePool.edges[edgeIndex];
@@ -252,23 +285,25 @@ NeighbourService::NeighbourService(const NodePool& np, const ElementPool& ep, co
     }
 }
 
+// найти ребро по индексам узлов
 int NeighbourService::findEdgeByNodes(int node1Index, int node2Index, const EdgePool& edgePool) const {
     for (int i = 0; i < edgePool.edges.size(); ++i) {
         const auto& edge = edgePool.edges[i];
         if ((edge.nodeInd1 == node1Index && edge.nodeInd2 == node2Index) ||
             (edge.nodeInd1 == node2Index && edge.nodeInd2 == node1Index)) {
-            return i; // Return the index of the matching edge
+            return i; // индекс подходящего ребра
         }
     }
-    return -1; // Return -1 if no edge is found
+    return -1; // индекс -1 при отсутствии результата поиска
 }
 
+// получить рёбра, выходящие из данного узла (по индексу узла)
 std::vector<int> NeighbourService::getEdgeNeighborsOfNode(int nodeIndex) const {
     auto it = nodeToEdgesMap.find(nodeIndex);
     if (it != nodeToEdgesMap.end()) {
-        return it->second; // Return the list of edge indexes
+        return it->second; // вовзращаем рёбра
     }
-    return {}; // Return an empty vector if the node is not found
+    return {};
 }
 
 std::unordered_set<int> NeighbourService::getNodeNeighbours(int nodeIndex) const {
@@ -283,18 +318,18 @@ std::unordered_set<int> NeighbourService::getElementNeighbours(int elementIndex)
     return elementToElements.at(elementIndex);
 }
 
-// Method to get edges of an element
+//получить рёбра элемента
 std::unordered_set<int> NeighbourService::getEdgesOfElement(int elementIndex) const {
     return elementToEdges.at(elementIndex);
 }
 
-// Method to get elements of an edge
+// получить соседей ребра (элементы)
 std::unordered_set<int> NeighbourService::getElementsOfEdge(int edgeIndex) const {
     return edgeToElementsMap.at(edgeIndex);
 }
 
 
-// Displaying neighbors and the relationships between nodes, elements, and edges
+// печать связей-соседей
 void NeighbourService::displayNeighbours() const {
     std::cout << "\n--- Neighbours ---" << std::endl;
 
@@ -360,27 +395,27 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
 
         while (std::getline(file, tmp_line)) {
             if (tmp_line == "$Nodes") {
-                std::getline(file, tmp_line);  // Size
-                std::getline(file, tmp_line);  // First enter
+                std::getline(file, tmp_line);  // размер
+                std::getline(file, tmp_line);  // первое вхождение
                 while (tmp_line != "$EndNodes") {
                     int ind;
                     double x, y, z;
                     std::istringstream ss(tmp_line);
-                    ss >> ind >> x >> y >> z;  // Read all values in one go
+                    ss >> ind >> x >> y >> z;  // считываем значения узла
                     nodes.emplace_back(ind - 1, x, y, z);
                     std::getline(file, tmp_line);
                 }
             } else if (tmp_line == "$Elements") {
-                std::getline(file, tmp_line); // Size
-                std::getline(file, tmp_line); // First enter
+                std::getline(file, tmp_line); // размер
+                std::getline(file, tmp_line); // первое вхождение
                 while (tmp_line != "$EndElements") {
                     int ind, count;
                     std::istringstream ss(tmp_line);
-                    ss >> ind >> count; // Read index and count
+                    ss >> ind >> count; // индекс и количество узлов
 
                     std::vector<int> indexes(count);
                     for (int i = 0; i < count; ++i) {
-                        ss >> indexes[i]; // Directly read into vector
+                        ss >> indexes[i]; // считываем индексы узлов
                         indexes[i] -= 1;
                     }
                     elements.emplace_back(ind-1, indexes, count);
@@ -391,18 +426,20 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
 
         std::cout << "Creating node and element pools..." << std::endl;
         np = NodePool(nodes.size(), nodes);
-        ep = ElementPool(nodes[0].ind, elements.size(), elements); // Assuming nodes[0].ind is the nodesPerElement
+        ep = ElementPool(nodes[0].ind, elements.size(), elements); // предполагаем, что вс элементы имеют одинаковую размерность
 
+        // вычисляем площади и центры для элементов
         for (int i = 0; i < ep.elCount; ++i) {
             ep.elements[i].area = areaCalc(ep.elements[i], np);
             ep.elements[i].centroid2D = getElementCentroid2D(ep.elements[i], np);
         }
 
         std::cout << "Creating edgepool..." << std::endl;
-        edgp = EdgePool(np, ep);  // Construct edges based on NodePool and ElementPool
+        edgp = EdgePool(np, ep);  // создаём набор рёбер
         std::cout << "Creating neighbour service..." << std::endl;
-        ns = NeighbourService(np, ep, edgp);
+        ns = NeighbourService(np, ep, edgp); // создаём сервис соседей
 
+        // индексы рёбер, образующих элемент
         for (auto &element: ep.elements) {
             for (int i = 0; i < element.dim; ++i) {
                 int nodeInd = element.nodeIndexes[i];
@@ -413,6 +450,8 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
                 }
             }
         }
+
+       // связь ребро - соседи
 #pragma omp parallel for
         for (int i = 0; i < ep.elements.size(); ++i) {
             const auto &element = ep.elements[i];
@@ -424,7 +463,7 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
             }
         }
 
-        // Parallelize element-to-element connections
+        // связь элемент - элемент
 #pragma omp parallel for
         for (int i = 0; i < ep.elCount; ++i) {
             const auto& element = ep.elements[i];
@@ -432,22 +471,22 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
 
             for (int edgeIndex : element.edgeIndexes) {
                 connectedElements.insert(ns.edgeToElements[edgeIndex].begin(),ns.edgeToElements[edgeIndex].end());
-
             }
-            connectedElements.erase(connectedElements.find(element.ind));
-            // Update the map in a thread-safe manner
+            connectedElements.erase(connectedElements.find(element.ind)); // убираем сам элемент
+            // thread-safe
 #pragma omp critical(elementToElements)
             {
                 ns.elementToElements[element.ind] = std::move(connectedElements);
             }
         }
 
+        // анализ границ
         std::cout << "Analyzing boundaries...." << std::endl;
         minX = np.getNode(0).x;
         maxX = np.getNode(0).x;
         maxY = np.getNode(0).y;
         minY = np.getNode(0).y;
-        // define the domain [minX, maxX] x [minY, maxY]
+        // определение [minX, maxX] x [minY, maxY]
         for (const auto& node: np.nodes) {
             if(node.x > maxX){
                 maxX = node.x;
@@ -463,7 +502,7 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
             }
         }
 
-        //gather boundary nodes
+        // собираем граничные узлы
         for(const auto& node: np.nodes){
             if(std::abs(node.x - maxX) < 1e-15){
                 boundaryRightNodes.push_back(node.ind);
@@ -479,7 +518,7 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
             }
         }
 
-        // gather boundary node-to-node connections
+        // граничные соответствия между узлами
         if(boundaryTopNodes.size() == boundaryBottomNodes.size()){
             std::cout << "Top corresponds to Bot"<< std::endl;
             for(const auto& indTop: boundaryTopNodes){
@@ -521,10 +560,11 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
 
         //gather boundary edges and elems
         for(const auto& edge: edgp.edges){
-            if(edge.neighbourInd1 == -1) {
+            if(edge.neighbourInd2 == -1) {
+                ep.elements[edge.neighbourInd1].is_boundary = true;
                 if (ns.boundaryNodeTopToBottom.count(edge.nodeInd1) == 1  && \
                     ns.boundaryNodeTopToBottom.count(edge.nodeInd2) == 1){
-                    //corresponding edge
+                    //соответствующее ребро
                     ns.boundaryEdgeTopToBottom[edge.ind] = -1;
                     for(const auto& ind1:ns.nodeToEdgesMap[ns.boundaryNodeTopToBottom[edge.nodeInd1]]){
                         for(const auto& ind2:ns.nodeToEdgesMap[ns.boundaryNodeTopToBottom[edge.nodeInd2]]){
@@ -653,6 +693,8 @@ void World::exportToFile(const string &filename) const{
         for (const auto& coord : element.centroid2D) {
             file.write(reinterpret_cast<const char*>(&coord), sizeof(coord));
         }
+        bool is_boundary = element.is_boundary;
+        file.write(reinterpret_cast<const char*>(&is_boundary), sizeof(is_boundary));
     }
 
     // Write EdgePool
@@ -806,6 +848,7 @@ void World::importFromFile(const string &filename) {
         for (auto& coord : element.centroid2D) {
             file.read(reinterpret_cast<char*>(&coord), sizeof(coord));
         }
+        file.read(reinterpret_cast<char*>(&element.is_boundary), sizeof(element.is_boundary));
     }
     ep = ElementPool(elements[0].dim, elementCount, elements);
 

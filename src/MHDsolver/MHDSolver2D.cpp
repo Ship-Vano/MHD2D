@@ -4,12 +4,12 @@
 
 #include "MHDSolver2D.h"
 
-
+// конструктор решателя
 MHDSolver2D::MHDSolver2D(const World &world): geometryWorld(world), nodeUs(world.getNodePool().nodeCount),
     elemUs(world.getElementPool().elCount), edgeUs(world.getEdgePool().edgeCount), initElemUs(world.getElementPool().elCount),
     initBns(world.getEdgePool().edgeCount), bNs(world.getEdgePool().edgeCount){}
 
-// Minmod limiter for state variables
+// Minmod-лимитер (пригодится позже)
 double minmod(double a, double b) {
     if (a * b > 0.0) {
         return std::copysign(std::min(std::abs(a), std::abs(b)), a);
@@ -17,7 +17,7 @@ double minmod(double a, double b) {
     return 0.0;
 }
 
-// Apply limiter to edge states
+// возмжное применение minmod-лимитера (не тестировал, набросок)ы
 std::vector<double> MHDSolver2D::applyLimiter(const std::vector<double>& U_left, const std::vector<double>& U_center, const std::vector<double>& U_right) {
     std::vector<double> limited(U_center.size());
     for (size_t i = 0; i < U_center.size(); ++i) {
@@ -79,6 +79,7 @@ std::vector<double> MHDSolver2D::rotateStateFromNormalToAxisX(vector<double> &U,
     return res;
 }
 
+// условие Куранта (имплементация №1)
 double MHDSolver2D::tau_from_cfl2D(const double& sigma, const double& hx, const double& hy, const std::vector<std::vector<double>>& states, const double& gam_hcr) {
     double max_speed = 0.0;
 
@@ -97,7 +98,7 @@ double MHDSolver2D::tau_from_cfl2D(const double& sigma, const double& hx, const 
     return std::min(tau, max_tau);
 }
 
-
+// условие Куранта (имплементация №2)
 double MHDSolver2D::tau_from_cfl2D(const double& sigma, const double& min_h, std::vector<std::vector<double>>& edgeStates, const double& gam_hcr,
                       const EdgePool& ep) {
     double max_speed = 0.0;
@@ -113,11 +114,13 @@ double MHDSolver2D::tau_from_cfl2D(const double& sigma, const double& min_h, std
     return std::min(optimal_tau, 1e-3);
 }
 
-
+// задание начальных условий
 void MHDSolver2D::setInitElemUs() {
+
     // Brio-Wu problem
     if(task_type == 1) {
         cflNum = 0.1;
+        freeFLowBoundaries = true;
         periodicBoundaries = false;
         std::cout << "SOLVING TASKTYPE 1 (BRIO-WU TEST)" << std::endl;
         /*rho  u   v   w   p   Bx   By   Bz gam_hcr*/
@@ -152,6 +155,7 @@ void MHDSolver2D::setInitElemUs() {
             initEdgeUs[edgeInd] = state;
         }
     }
+
     // alfven wave test
     else if(task_type == 2){
         std::cout << "SOLVING TASKTYPE 2 (ALFVEN WAVE TEST)" << std::endl;
@@ -225,12 +229,15 @@ void MHDSolver2D::runSolver() {
     std::vector<std::vector<double>> nodeUs_prev(nodeUs);
     std::vector<std::vector<double>> edgeUs_prev(edgeUs);
 
+    // проверка на нормировку нормалей
     for(const auto edge: edgePool.edges){
         double norm = std::sqrt(edge.normalVector[0]*edge.normalVector[0] + edge.normalVector[1]*edge.normalVector[1]);
-        if(std::abs(1.0-norm) > 1e-14){
+        if(std::abs(1.0-norm) > 1e-15){
             std::cout << "bad normal! " << std::abs(1-norm) << std::endl;
         }
     }
+
+    // дивергенция магнитного поля
     double divergence = computeDivergence(elemUs, edgePool);
     if (divergence > 1e-10) {
         std::cout << "Max divergence: " << divergence << std::endl;
@@ -240,38 +247,64 @@ void MHDSolver2D::runSolver() {
     std::cout << "Min h = " << h << std::endl;
 
     double currentTime = startTime;
-    bool foundNan = false;
-    int iterations = 0;
+    bool foundNan = false; // флаг для поиска NaN-значений
+    int iterations = 0; // число текущих итераций
+
+    // соновной цикл по времени
     while(currentTime < finalTime) {
         //std::cout << "iteration #" << iterations << std::endl;
         elemUs_prev.swap(elemUs);
         nodeUs_prev.swap(nodeUs);
         edgeUs_prev.swap(edgeUs);
 
-        //tau = std::max(min_tau, tau_from_cfl2D(cflNum, h, edgeUs_prev, gam_hcr, edgePool));
-        tau = std::max(min_tau, tau_from_cfl2D(cflNum, h, h, elemUs_prev, gam_hcr));
+        tau = std::max(min_tau, tau_from_cfl2D(cflNum, h, edgeUs_prev, gam_hcr, edgePool));
+
+        // ограничение: в tauCfl идут только граничные состояния (требуется убрать после отладки гран условий)
+        /*std::vector<std::vector<double>> usForCFL;
+        for(const auto & elem: elPool.elements){
+            bool is_boundary = false;
+            for(const auto& edgind: elem.edgeIndexes){
+                if(edgePool.edges[edgind].neighbourInd2 == -1){
+                    is_boundary = true;
+                    break;
+                }
+            }
+            if(is_boundary){
+                continue;
+            }
+            usForCFL.push_back(elemUs_prev[elem.ind]);
+        }
+
+        // выбор оптимального шага по времени
+        tau = std::max(min_tau, tau_from_cfl2D(cflNum, h, h, usForCFL, gam_hcr));*/
 
         currentTime += tau;
+
+        // подбор времени (если "перепрыгнули" за финальное время)
         if (currentTime > finalTime) {
             tau -= (currentTime - finalTime);
             currentTime = finalTime;
         }
 
+        // запись в файл временного результата
         if (iterations % iterationsPerFrame == 0) {
             std::cout << std::setprecision(10) << "t = " << currentTime << std::endl;
             writeVTU("OutputData/tmpres_" + std::to_string(iterations) + ".vtu", geometryWorld, elemUs);
         }
+
+        // вывд максимальной дивергенции
         if (debugDivergence) {
             divergence = computeDivergence(elemUs, edgePool);
             if (divergence > 1e-10) {
                 std::cout << "Max divergence: " << divergence << std::endl;
             }
         }
-        //(2) вычисляем потоки, проходящие через каждое ребро
+
+        // вычисляем потоки, проходящие через каждое ребро
         // инициализируем вектор потоков через рёбра // MHD (HLLD) fluxes (from one element to another "<| -> |>")
         std::vector<std::vector<double>> fluxes(edgePool.edgeCount, std::vector<double>(8, 0.0));
         std::vector<std::vector<double>> unrotated_fluxes(edgePool.edgeCount, std::vector<double>(8, 0.0));
-#pragma parallel for
+//#pragma parallel for
         for (const auto &edge: edgePool.edges) {
             int neighbour1 = edge.neighbourInd1;
             int neighbour2 = edge.neighbourInd2;
@@ -289,14 +322,13 @@ void MHDSolver2D::runSolver() {
         }
 
 
-        //по явной схеме обновляем газовые величины
-        #pragma omp parallel for
+        // по явной схеме обновляем газовые величины
+        //#pragma omp parallel for
         for (const auto &elem: elPool.elements) {
             bool is_boundary = false;
             int i = elem.ind;
             std::vector<double> fluxSum(8, 0.0);
             for (int edgeIndex: elem.edgeIndexes) {
-
                 Edge edge_j = edgePool.edges[edgeIndex];
                 if (edge_j.neighbourInd1 == i) {
                     fluxSum = fluxSum + edge_j.length * fluxes[edgeIndex];
@@ -305,11 +337,8 @@ void MHDSolver2D::runSolver() {
                 } else {
                         std::cerr << "No matching edge..." << std::endl;
                 }
-                if(edge_j.neighbourInd2 == -1){
-                    is_boundary = true;
-                }
             }
-            if(is_boundary){ //граничная ячейка : либо периодические, либо ничего не делаем - ИСТОРИЧЕСКИЕ ГУ
+            if(elem.is_boundary){ //граничная ячейка : либо периодические, либо ничего не делаем - ИСТОРИЧЕСКИЕ ГУ
                 if(periodicBoundaries){
                     if(ns.boundaryElemTopToBottom.count(i) != 0){
                         elemUs[i].swap(elemUs_prev[ns.boundaryElemTopToBottom[i]]);
@@ -329,7 +358,7 @@ void MHDSolver2D::runSolver() {
         //корректируем магнитные величины
         //находим узловые значения нужных магнитных разностей //(v x B)z в узлах
         std::vector<double> nodeMagDiffs(nodePool.nodeCount, 0.0); //(v x B)z в узлах
-#pragma omp parallel for
+//#pragma omp parallel for
         for (const auto &node: nodePool.nodes) {
             int tmp_count = 0;
             for (const auto &neighbourEdgeInd: ns.getEdgeNeighborsOfNode(node.ind)) {
@@ -344,14 +373,13 @@ void MHDSolver2D::runSolver() {
         //находим новое значение Bn в ребре
         std::vector<double> bNs_prev(bNs);
         for (const auto& edge: edgePool.edges) {
-            bNs[edge.ind] = bNs_prev[edge.ind] + tau / edge.length * (nodeMagDiffs[edge.nodeInd1] -
+            bNs[edge.ind] = bNs_prev[edge.ind] - tau / edge.length * (nodeMagDiffs[edge.nodeInd1] -
                                                         nodeMagDiffs[edge.nodeInd2]);
         }
 
         //сносим Bn в центр элемента
-#pragma omp parallel for
+//#pragma omp parallel for
         for (const auto &elem: elPool.elements) {
-            bool is_boundary = false;
             std::vector<double> centroid = getElementCentroid2D(elem, nodePool);
             if(elem.edgeIndexes.empty()){
                 std::cout << "Empty element! (no edges)" << std::endl;
@@ -360,10 +388,6 @@ void MHDSolver2D::runSolver() {
             double temp_sum_By = 0.0;
             for (const auto &edgeInd: elem.edgeIndexes) {
                 Edge edge = edgePool.edges[edgeInd];
-
-                if(edge.neighbourInd1 == -1 || edge.neighbourInd2 == -1){
-                    is_boundary = true;
-                }
                 if (edge.neighbourInd1 == elem.ind) {
                     // у первого соседа в эдже заданы ноды в порядке полодительного обхода и нормаль тоже
                     const auto nodeInElemInd = std::find(elem.nodeIndexes.begin(), elem.nodeIndexes.end(),
@@ -374,8 +398,8 @@ void MHDSolver2D::runSolver() {
                     //std::cout << "current ind = " << edge.nodeInd1 <<" Elem's node indexes: " << elem.nodeIndexes[0] << " "<< elem.nodeIndexes[1] << " "<< elem.nodeIndexes[2] << ", node_beforeInd = " << node_before_ind << std::endl;
                     //std::cin.get();
                     Node node_before = nodePool.getNode(node_before_ind);
-                    /*elemUs[elem.ind][5]*/temp_sum_Bx -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
-                    /*elemUs[elem.ind][6]*/temp_sum_By -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                    /*elemUs[elem.ind][5]*/temp_sum_Bx += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
+                    /*elemUs[elem.ind][6]*/temp_sum_By += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
                 } else {
                     // а вот для второго нужно умножать на -1 и в обратном порядке
                     const auto nodeInElemInd = std::find(elem.nodeIndexes.begin(), elem.nodeIndexes.end(),
@@ -385,14 +409,12 @@ void MHDSolver2D::runSolver() {
                                     nodeInElemInd - 1);
                     //        auto itNode1 = std::find(elementNodes.begin(), elementNodes.end(), node2);
                     Node node_before = nodePool.getNode(node_before_ind);
-                    /*elemUs[elem.ind][5]*/temp_sum_Bx += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
-                    /*elemUs[elem.ind][6]*/temp_sum_By += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                    /*elemUs[elem.ind][5]*/temp_sum_Bx -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
+                    /*elemUs[elem.ind][6]*/temp_sum_By -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
                 }
-            }
-            elemUs[elem.ind][5] = temp_sum_Bx;
-            elemUs[elem.ind][6] = temp_sum_By;
-            /*if(is_boundary){
+            }if(elem.is_boundary){
                //do smth, например ничего - ИСТОРИЧЕСКИЕ ГУ
+               // периодические г.у.
                if(periodicBoundaries){
                    if(ns.boundaryElemTopToBottom.count(elem.ind) != 0){
                        std::swap(elemUs[elem.ind][5], elemUs_prev[ns.boundaryElemTopToBottom[elem.ind]][5]);
@@ -411,10 +433,8 @@ void MHDSolver2D::runSolver() {
             }else{
                 elemUs[elem.ind][5] = temp_sum_Bx;
                 elemUs[elem.ind][6] = temp_sum_By;
-            }*/
+            }
         }
-
-
 
         for(const auto& edge: edgePool.edges){
             vector<double> state1 = elemUs[edge.neighbourInd1];
