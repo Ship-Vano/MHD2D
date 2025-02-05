@@ -84,6 +84,7 @@ double MHDSolver2D::tau_from_cfl2D(const double& sigma, const double& hx, const 
     double max_speed = 0.0;
 
     for (const auto& state : states) {
+        // для cfast брать модули в-в v и B
         double u = std::fabs(state[1] / state[0]);
         double v = std::fabs(state[2] / state[0]);
         double cf = cfast(state, gam_hcr);
@@ -103,6 +104,7 @@ double MHDSolver2D::tau_from_cfl2D(const double& sigma, const double& min_h, std
                       const EdgePool& ep) {
     double max_speed = 0.0;
     for (const auto& edge : ep.edges) {
+        // не вращать, а передавать моули в-в
         const vector<double> rotatedState = rotateStateFromAxisToNormal(edgeStates[edge.ind], edge.normalVector);
         double u = std::fabs(rotatedState[1] / rotatedState[0]);
         double cf = cfast(rotatedState, gam_hcr);
@@ -300,6 +302,8 @@ void MHDSolver2D::runSolver() {
             }
         }
 
+        // г.у (фикт ячейки) поставить перед выч-м потоков
+
         // вычисляем потоки, проходящие через каждое ребро
         // инициализируем вектор потоков через рёбра // MHD (HLLD) fluxes (from one element to another "<| -> |>")
         std::vector<std::vector<double>> fluxes(edgePool.edgeCount, std::vector<double>(8, 0.0));
@@ -355,6 +359,7 @@ void MHDSolver2D::runSolver() {
             }
         }
 
+        //!!! добавить г.у.
         //корректируем магнитные величины
         //находим узловые значения нужных магнитных разностей //(v x B)z в узлах
         std::vector<double> nodeMagDiffs(nodePool.nodeCount, 0.0); //(v x B)z в узлах
@@ -362,6 +367,7 @@ void MHDSolver2D::runSolver() {
         for (const auto &node: nodePool.nodes) {
             int tmp_count = 0;
             for (const auto &neighbourEdgeInd: ns.getEdgeNeighborsOfNode(node.ind)) {
+                // добавить проверку на совпадения направлений в-ра скорости и нарпавляющего ребра
                 nodeMagDiffs[node.ind] += unrotated_fluxes[neighbourEdgeInd][6];
                 ++tmp_count;
             }
@@ -373,7 +379,7 @@ void MHDSolver2D::runSolver() {
         //находим новое значение Bn в ребре
         std::vector<double> bNs_prev(bNs);
         for (const auto& edge: edgePool.edges) {
-            bNs[edge.ind] = bNs_prev[edge.ind] - tau / edge.length * (nodeMagDiffs[edge.nodeInd1] -
+            bNs[edge.ind] = bNs_prev[edge.ind] - (tau / edge.length) * (nodeMagDiffs[edge.nodeInd1] -
                                                         nodeMagDiffs[edge.nodeInd2]);
         }
 

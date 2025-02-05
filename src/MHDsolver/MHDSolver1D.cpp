@@ -324,6 +324,7 @@ std::vector<double> HLLD_flux(const std::vector<double>& U_L, const std::vector<
     double pT_R = ptotal(p_R, Bx_R, By_R, Bz_R);
 
     double Bx = (Bx_L + Bx_R)/2;
+    // или взять среднее по Роу
     //double Bx = Bx_L;
     //быстрые магнитозвуковые скорости на левом и правом концах
     double cf_L = cfast(U_L, gam_hcr);
