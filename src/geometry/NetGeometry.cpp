@@ -596,7 +596,33 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
             }
         }
 
-    }
+        // ghost cells generation
+        int ghostElemInd = 0;
+        int ghostNodeInd = 0;
+        int ghostEdgeInd = 0;
+        for(const auto& elem: ep.elements){
+            // определяем граничный элемент
+            if(elem.is_boundary){
+                // определяем граничное ребро
+                for(const auto& edgeInd: elem.edgeIndexes){
+                    Edge edge = edgp.edges[edgeInd];
+                    if(edge.neighbourInd2 == -1){
+                        // отражаем 3й узел
+                        const auto nodeInElemInd = std::find(elem.nodeIndexes.begin(), elem.nodeIndexes.end(),
+                                                             edge.nodeInd1);
+                        int node_before_ind =
+                                nodeInElemInd == elem.nodeIndexes.begin() ? elem.nodeIndexes[elem.dim - 1] : *(
+                                        nodeInElemInd - 1);
+                        Node node3rd = np.getNode(node_before_ind);
+                        // строим элемент
+                        // строим рёбра
+                        // добавляем индекс ghost cell в исходный элемент
+                    }
+                }
+
+            }
+        }
+    } /*end: 2d variant constructor*/
 }
 
 void World::display() const {

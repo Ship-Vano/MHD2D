@@ -131,7 +131,7 @@ double cfast(const std::vector<double>& U, const double& gam_hcr) {
 
     double cfast = std::sqrt((gam_hcr * p + BB + std::sqrt((gam_hcr * p + BB) * (gam_hcr * p + BB) - 4 * gam_hcr * p * Bx * Bx)) / (2 * rho));
 
-    if (cfast > 1e6 || std::isnan(cfast)) {
+    if (cfast > 1e10 || std::isnan(cfast)) {
         std::cerr << "Unrealistic cfast detected: " << cfast
                   << ", rho = " << rho << ", p = " << p
                   << ", BB = " << BB << std::endl;
@@ -323,9 +323,10 @@ std::vector<double> HLLD_flux(const std::vector<double>& U_L, const std::vector<
     double p_R = pressure(gam_hcr, e_R, rho_R, u_R, v_R, w_R, Bx_R, By_R, Bz_R);
     double pT_R = ptotal(p_R, Bx_R, By_R, Bz_R);
 
-    double Bx = (Bx_L + Bx_R)/2;
+    //double Bx = (Bx_L + Bx_R)/2;
     // или взять среднее по Роу
-    //double Bx = Bx_L;
+    double Bx = (std::sqrt(rho_L)*Bx_L + std::sqrt(rho_R)*Bx_R) / (std::sqrt(rho_L) + std::sqrt(rho_R));
+
     //быстрые магнитозвуковые скорости на левом и правом концах
     double cf_L = cfast(U_L, gam_hcr);
     double cf_R = cfast(U_R, gam_hcr);

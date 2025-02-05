@@ -49,8 +49,8 @@ std::vector<double> MHDSolver2D::rotateStateFromAxisToNormal(vector<double> &U, 
         //std::cout << "Unequal velocity modules: " <<std::scientific << vel0 << " vs " << vel1 << std::endl;
         //std::cin.get();
     }*/
-    double p = pressure(res, gam_hcr);
-    double energy_rotated = energy(gam_hcr, p, res[0], res[1]/res[0], res[2]/res[0], res[3]/res[0], res[5], res[6], res[7]);
+    //double p = pressure(res, gam_hcr);
+    //double energy_rotated = energy(gam_hcr, p, res[0], res[1]/res[0], res[2]/res[0], res[3]/res[0], res[5], res[6], res[7]);
     //res[4] = energy_rotated;
     /*if(std::abs(energy_rotated - U[4]) > 1e-12) {
         std::cout << "Unequal energy modules: " << std::scientific << U[4] << " vs " << energy_rotated << std::endl;
@@ -73,23 +73,24 @@ std::vector<double> MHDSolver2D::rotateStateFromNormalToAxisX(vector<double> &U,
     res[2] =  U[1]*n[1] + U[2]*n[0];
     res[5] =  U[5]*n[0] - U[6]*n[1];
     res[6] =  U[5]*n[1] + U[6]*n[0];
-    double p = pressure(res, gam_hcr);
-    double energy_rotated = energy(gam_hcr, p, res[0], res[1]/res[0], res[2]/res[0], res[3]/res[0], res[5], res[6], res[7]);
+    //double p = pressure(res, gam_hcr);
+    //double energy_rotated = energy(gam_hcr, p, res[0], res[1]/res[0], res[2]/res[0], res[3]/res[0], res[5], res[6], res[7]);
     //res[4] = energy_rotated;
     return res;
 }
 
-// условие Куранта (имплементация №1)
+// условие Куранта (имплементация №1) (элементы)
 double MHDSolver2D::tau_from_cfl2D(const double& sigma, const double& hx, const double& hy, const std::vector<std::vector<double>>& states, const double& gam_hcr) {
     double max_speed = 0.0;
-
     for (const auto& state : states) {
         // для cfast брать модули в-в v и B
         double u = std::fabs(state[1] / state[0]);
         double v = std::fabs(state[2] / state[0]);
+        double w = std::fabs(state[3]/state[0]);
         double cf = cfast(state, gam_hcr);
-        double local_speed = (u + cf) / hx + (v + cf) / hy;
-        max_speed = std::max(max_speed, local_speed);
+        //double local_speed = (u + cf) / hx + (v + cf) / hy;
+        //max_speed = std::max(max_speed, local_speed);
+        max_speed = std::max(max_speed, cf);
     }
     if(max_speed < 1e-16){
         max_speed = 1e-14;
@@ -99,7 +100,7 @@ double MHDSolver2D::tau_from_cfl2D(const double& sigma, const double& hx, const 
     return std::min(tau, max_tau);
 }
 
-// условие Куранта (имплементация №2)
+// условие Куранта (имплементация №2) (Рёбра)
 double MHDSolver2D::tau_from_cfl2D(const double& sigma, const double& min_h, std::vector<std::vector<double>>& edgeStates, const double& gam_hcr,
                       const EdgePool& ep) {
     double max_speed = 0.0;
@@ -257,10 +258,10 @@ void MHDSolver2D::runSolver() {
         //std::cout << "iteration #" << iterations << std::endl;
         elemUs_prev.swap(elemUs);
         nodeUs_prev.swap(nodeUs);
-        edgeUs_prev.swap(edgeUs);
+        //edgeUs_prev.swap(edgeUs);
 
-        tau = std::max(min_tau, tau_from_cfl2D(cflNum, h, edgeUs_prev, gam_hcr, edgePool));
-
+       // tau = std::max(min_tau, tau_from_cfl2D(cflNum, h, edgeUs_prev, gam_hcr, edgePool));
+        tau = std::max(min_tau, tau_from_cfl2D(cflNum, h, h, elemUs_prev, gam_hcr));
         // ограничение: в tauCfl идут только граничные состояния (требуется убрать после отладки гран условий)
         /*std::vector<std::vector<double>> usForCFL;
         for(const auto & elem: elPool.elements){
@@ -368,8 +369,22 @@ void MHDSolver2D::runSolver() {
             int tmp_count = 0;
             for (const auto &neighbourEdgeInd: ns.getEdgeNeighborsOfNode(node.ind)) {
                 // добавить проверку на совпадения направлений в-ра скорости и нарпавляющего ребра
-                nodeMagDiffs[node.ind] += unrotated_fluxes[neighbourEdgeInd][6];
-                ++tmp_count;
+                Edge neighbourEdge = edgePool.edges[neighbourEdgeInd];
+                Node node1 = nodePool.getNode(neighbourEdge.nodeInd1);
+                Node node2 = nodePool.getNode(neighbourEdge.nodeInd2);
+                int inflowOrientation = 1;
+                double u = edgeUs[neighbourEdgeInd][1]/edgeUs[neighbourEdgeInd][0];
+                double v = edgeUs[neighbourEdgeInd][2]/edgeUs[neighbourEdgeInd][0];
+                if(neighbourEdge.nodeInd1 == node.ind){
+                    inflowOrientation =  (u*(node1.x - node2.x) + v*(node1.y - node2.y)) > 0 ? 1 : -1;
+                }
+                else if(neighbourEdge.nodeInd2 == node.ind){
+                    inflowOrientation =  (u*(node2.x - node1.x) + v*(node2.y - node1.y)) > 0 ? 1 : -1;
+                }
+                if(inflowOrientation > 0.0) {
+                    nodeMagDiffs[node.ind] += unrotated_fluxes[neighbourEdgeInd][6];
+                    ++tmp_count;
+                }
             }
             if (tmp_count) {
                 nodeMagDiffs[node.ind] /= tmp_count;
@@ -446,7 +461,8 @@ void MHDSolver2D::runSolver() {
             vector<double> state1 = elemUs[edge.neighbourInd1];
             if(edge.neighbourInd2 > -1) {
                 vector<double> state2 = elemUs[edge.neighbourInd2];
-                edgeUs[edge.ind] = 0.5 * (state1 + state2);
+                //edgeUs[edge.ind] = 0.5 * (state1 + state2);
+                edgeUs[edge.ind] = (1/ (std::sqrt(state1[0]) + std::sqrt(state2[0]))) * (std::sqrt(state1[0])*state1 + std::sqrt(state2[0])*state2);
             }
             else {
                 edgeUs[edge.ind] = state1;

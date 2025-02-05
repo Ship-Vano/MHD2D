@@ -150,6 +150,9 @@ public:
     std::vector<int> boundaryBottomNodes; // индексы нижних граничных узлов
     std::vector<int> boundaryBottomElems; // индексы нижних граничных элементов
     std::vector<int> boundaryBottomEdges; // индексы нижних граничных рёбер
+    std::vector<Node> ghostNodes;           // фантомные узлы
+    std::vector<Element> ghostCells;        // фантомные ячейки
+    std::vector<Edge> ghostEdges;         // фантомные ребра
     void setNodePool(const NodePool& np);
     NodePool getNodePool() const;
     void setElementPool(const ElementPool& ep);
