@@ -7,7 +7,8 @@
 // конструктор решателя
 MHDSolver2D::MHDSolver2D(const World &world): geometryWorld(world), nodeUs(world.getNodePool().nodeCount),
     elemUs(world.getElementPool().elCount - world.ghostElemCount), edgeUs(world.getEdgePool().edgeCount - world.ghostElemCount * 2), initElemUs(world.getElementPool().elCount - world.ghostElemCount),
-    initBns(world.getEdgePool().edgeCount - world.ghostElemCount*2), bNs(world.getEdgePool().edgeCount - world.ghostElemCount*2){}
+    initBns(world.getEdgePool().edgeCount - world.ghostElemCount*2), bNs(world.getEdgePool().edgeCount - world.ghostElemCount*2),
+    ghostElemUs(world.ghostElemCount), ghostBNs(2*world.ghostElemCount){}
 
 // Minmod-лимитер (пригодится позже)
 double minmod(double a, double b) {
@@ -152,10 +153,11 @@ void MHDSolver2D::setInitElemUs() {
             Element elem = ep.elements[i];
             std::vector<double> centroid = elem.centroid2D;
             int elInd = elem.ind;
+            int ghostInd = elInd - innerElemCount;
             if (centroid[0] < 0.5) {
-                initGhostElemUs[elInd] = state_from_primitive_vars(BrioWu_L1);
+                initGhostElemUs[ghostInd] = state_from_primitive_vars(BrioWu_L1);
             } else {
-                initGhostElemUs[elInd] = state_from_primitive_vars(BrioWu_R1);
+                initGhostElemUs[ghostInd] = state_from_primitive_vars(BrioWu_R1);
             }
         }
 
@@ -190,7 +192,8 @@ void MHDSolver2D::setInitElemUs() {
                 state = state_from_primitive_vars(BrioWu_R1);
             }
             double Bn = state[5] * normal[0] + state[6] * normal[1];
-            initGhostBNs[edgeInd] = Bn;
+            int ghostInd = edgeInd - innerEdgeCount;
+            initGhostBNs[ghostInd] = Bn;
         }
     }
 
@@ -541,7 +544,6 @@ void MHDSolver2D::writeVTU(const std::string& filename, const bool& ghost) {
     const int ghostNodeCount = geometryWorld.ghostNodeCount;
 
     std::ofstream file(filename);
-
     if (!file.is_open()) {
         throw std::runtime_error("Cannot open file: " + filename);
     }
@@ -549,13 +551,14 @@ void MHDSolver2D::writeVTU(const std::string& filename, const bool& ghost) {
     file << "<?xml version=\"1.0\"?>\n";
     file << "<VTKFile type=\"UnstructuredGrid\" version=\"0.1\" byte_order=\"LittleEndian\">\n";
     file << "  <UnstructuredGrid>\n";
-    file << "    <Piece NumberOfPoints=\"" << np.nodeCount - ghostNodeCount*(1-ghost) << "\" NumberOfCells=\"" << ep.elCount - ghostElemCount*(1-ghost) << "\">\n";
+    file << "    <Piece NumberOfPoints=\"" << np.nodeCount - ghostNodeCount * (1 - ghost)
+         << "\" NumberOfCells=\"" << ep.elCount - ghostElemCount * (1 - ghost) << "\">\n";
 
     // Write points (nodes)
     file << "      <Points>\n";
     file << "        <DataArray type=\"Float64\" NumberOfComponents=\"3\" format=\"ascii\">\n";
     for (const auto& node : np.nodes) {
-        if(!node.is_ghost || ghost) {
+        if (!node.is_ghost || ghost) {
             file << "          " << node.x << " " << node.y << " " << node.z << "\n";
         }
     }
@@ -565,12 +568,12 @@ void MHDSolver2D::writeVTU(const std::string& filename, const bool& ghost) {
     // Write cells (elements)
     file << "      <Cells>\n";
 
-    // Connectivity
+    // Connectivity (fix 1-based index issue)
     file << "        <DataArray type=\"Int32\" Name=\"connectivity\" format=\"ascii\">\n";
     for (const auto& element : ep.elements) {
-        if(!element.is_ghost || ghost) {
-            for (const auto &nodeIndex: element.nodeIndexes) {
-                file << "          " << nodeIndex << " ";
+        if (!element.is_ghost || ghost) {
+            for (const auto &nodeIndex : element.nodeIndexes) {
+                file << "          " << (nodeIndex) << " ";  // Convert to 0-based indexing
             }
             file << "\n";
         }
@@ -581,7 +584,7 @@ void MHDSolver2D::writeVTU(const std::string& filename, const bool& ghost) {
     file << "        <DataArray type=\"Int32\" Name=\"offsets\" format=\"ascii\">\n";
     int offset = 0;
     for (const auto& element : ep.elements) {
-        if(!element.is_ghost || ghost) {
+        if (!element.is_ghost || ghost) {
             offset += element.dim;
             file << "          " << offset << "\n";
         }
@@ -591,27 +594,23 @@ void MHDSolver2D::writeVTU(const std::string& filename, const bool& ghost) {
     // Types
     file << "        <DataArray type=\"UInt8\" Name=\"types\" format=\"ascii\">\n";
     for (const auto& element : ep.elements) {
-        if(!element.is_ghost || ghost) {
-            if (element.dim == 3) {
-                file << "          5\n"; // Triangle
-            } else if (element.dim == 4) {
-                file << "          9\n"; // Quadrilateral
-            }
+        if (!element.is_ghost || ghost) {
+            file << "          " << ((element.dim == 3) ? 5 : 9) << "\n";  // 5 for Triangle, 9 for Quadrilateral
         }
     }
     file << "        </DataArray>\n";
     file << "      </Cells>\n";
 
-    // Write solution data (elemUs)
+    // Write solution data (elemUs) - Fix NumberOfComponents to 8
     file << "      <CellData Scalars=\"elemUs\">\n";
-    file << R"(        <DataArray type="Float64" NumberOfComponents=")" << ep.elCount - ghostElemCount*(1-ghost) << "\" Name=\"elemUs\" format=\"ascii\">\n";
+    file << "        <DataArray type=\"Float64\" NumberOfComponents=\"8\" Name=\"elemUs\" format=\"ascii\">\n";
     for (const auto& U : elemUs) {
         for (const auto& value : U) {
             file << "          " << value << " ";
         }
         file << "\n";
     }
-    if(ghost){
+    if (ghost) {
         for (const auto& U : ghostElemUs) {
             for (const auto& value : U) {
                 file << "          " << value << " ";
