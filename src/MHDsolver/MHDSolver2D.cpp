@@ -128,7 +128,7 @@ void MHDSolver2D::setInitElemUs() {
 
     // Brio-Wu problem
     if(task_type == 1) {
-        cflNum = 0.1;
+        cflNum = 0.4;
         freeFLowBoundaries = true;
         periodicBoundaries = false;
         std::cout << "SOLVING TASKTYPE 1 (BRIO-WU TEST)" << std::endl;
@@ -471,7 +471,8 @@ void MHDSolver2D::runSolver() {
 
         //находим новое значение Bn в ребре
         std::vector<double> bNs_prev(bNs);
-        for (const auto& edge: edgePool.edges) {
+        for (int i = 0; i < innerEdgeCount; ++i) {
+            Edge edge = edgePool.edges[i];
             bNs[edge.ind] = bNs_prev[edge.ind] + (tau / edge.length) * (nodeMagDiffs[edge.nodeInd1] -
                                                         nodeMagDiffs[edge.nodeInd2]);
         }
