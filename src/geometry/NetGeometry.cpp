@@ -647,18 +647,29 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
                         // строим рёбра
                         Edge ghostEdge1(ghostEdgeInd, edge.nodeInd1, ghostNodeInd, ghostElemInd, -1,
                                         getDistance(edge.nodeInd1, ghostNodeInd, np),
-                                        calculateNormalVector2D(np.getNode(edge.nodeInd1), np.getNode(ghostNodeInd)),
+                                        calculateNormalVector2D(node1st, reflNode),
                                         getMidPoint2D(edge.nodeInd1, ghostNodeInd, np));
+                        if(std::abs(1.0-std::sqrt(ghostEdge1.normalVector[0]*ghostEdge1.normalVector[0] + ghostEdge1.normalVector[1]*ghostEdge1.normalVector[1])) > 1e-15){
+                            std::cout << "bad normal while creating a ghost edge! normal = { " << ghostEdge1.normalVector[0] << " , " << ghostEdge1.normalVector[1] << " }"<<std::endl;
+                        }
+
                         ghostEdge1.is_ghost = true;
                         Edge ghostEdge2(ghostEdgeInd + 1, ghostNodeInd, edge.nodeInd2, ghostElemInd, -1,
                                         getDistance(ghostNodeInd, edge.nodeInd2, np),
-                                        calculateNormalVector2D(np.getNode(ghostNodeInd), np.getNode(edge.nodeInd2)),
+                                        calculateNormalVector2D(reflNode, node2nd),
                                         getMidPoint2D(ghostNodeInd, edge.nodeInd2, np));
-                        ghostEdge2.is_ghost = true;
+                        if(std::abs(1.0-std::sqrt(ghostEdge2.normalVector[0]*ghostEdge2.normalVector[0] + ghostEdge2.normalVector[1]*ghostEdge2.normalVector[1])) > 1e-15){
+                            std::cout << "bad normal while creating a ghost edge!" <<std::endl;
+                        }
 
+                        ghostEdge2.is_ghost = true;
                         ghostEl.edgeIndexes = std::vector<int>{edge.ind, ghostEdgeInd, ghostEdgeInd + 1};
                         ghostEl.area = elem.area;
                         ghostEl.centroid2D = getElementCentroid2D({node2nd, node1st, reflNode});
+
+                        // neighbour service connection
+                        ns.boundaryToGhostElements[elem.ind] = ghostEl.ind;
+
                         // Update indices
                         ghostNodes.push_back(reflNode);
                         ghostElements.push_back(ghostEl);
@@ -680,6 +691,7 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
         ep.elCount = ep.elements.size();
         edgp.edges.insert(edgp.edges.end(), ghostEdges.begin(), ghostEdges.end());
         edgp.edgeCount = edgp.edges.size();
+
     } /*end: 2d variant constructor*/
 }
 
@@ -746,6 +758,7 @@ void World::exportToFile(const string &filename) const{
         file.write(reinterpret_cast<const char*>(&node.x), sizeof(node.x));
         file.write(reinterpret_cast<const char*>(&node.y), sizeof(node.y));
         file.write(reinterpret_cast<const char*>(&node.z), sizeof(node.z));
+        file.write(reinterpret_cast<const char*>(&node.is_ghost), sizeof(node.is_ghost));
     }
 
     // Write ElementPool
@@ -779,6 +792,8 @@ void World::exportToFile(const string &filename) const{
         }
         bool is_boundary = element.is_boundary;
         file.write(reinterpret_cast<const char*>(&is_boundary), sizeof(is_boundary));
+        bool is_ghost = element.is_ghost;
+        file.write(reinterpret_cast<const char*>(&is_ghost), sizeof(is_ghost));
     }
 
     // Write EdgePool
@@ -797,6 +812,7 @@ void World::exportToFile(const string &filename) const{
         for (const auto& val : edge.midPoint) {
             file.write(reinterpret_cast<const char*>(&val), sizeof(val));
         }
+        file.write(reinterpret_cast<const char*>(&edge.is_ghost), sizeof(edge.is_ghost));
     }
 
     // Serialize NeighbourService
@@ -888,6 +904,14 @@ void World::exportToFile(const string &filename) const{
         file.write(reinterpret_cast<const char*>(&elemBot), sizeof(elemBot));
     }
 
+    // Export boundaryELem to ghostELem
+    int boundaryToGhost_size = ns.boundaryToGhostElements.size();
+    file.write(reinterpret_cast<const char*>(&boundaryToGhost_size), sizeof(boundaryToGhost_size));
+    for (const auto& [boundary, ghost] : ns.boundaryToGhostElements) {
+        file.write(reinterpret_cast<const char*>(&boundary), sizeof(boundary));
+        file.write(reinterpret_cast<const char*>(&ghost), sizeof(ghost));
+    }
+
     file.close();
     std::cout << "World exported to " << filename << std::endl;
 }
@@ -907,6 +931,7 @@ void World::importFromFile(const string &filename) {
         file.read(reinterpret_cast<char*>(&node.x), sizeof(node.x));
         file.read(reinterpret_cast<char*>(&node.y), sizeof(node.y));
         file.read(reinterpret_cast<char*>(&node.z), sizeof(node.z));
+        file.read(reinterpret_cast<char*>(&node.is_ghost), sizeof(node.is_ghost));
     }
     np = NodePool(nodeCount, nodes);
 
@@ -933,6 +958,7 @@ void World::importFromFile(const string &filename) {
             file.read(reinterpret_cast<char*>(&coord), sizeof(coord));
         }
         file.read(reinterpret_cast<char*>(&element.is_boundary), sizeof(element.is_boundary));
+        file.read(reinterpret_cast<char*>(&element.is_ghost), sizeof(element.is_ghost));
     }
     ep = ElementPool(elements[0].dim, elementCount, elements);
 
@@ -955,6 +981,7 @@ void World::importFromFile(const string &filename) {
         for (auto& val : edge.midPoint) {
             file.read(reinterpret_cast<char*>(&val), sizeof(val));
         }
+        file.read(reinterpret_cast<char*>(&edge.is_ghost), sizeof(edge.is_ghost));
     }
     edgp = EdgePool(edgeCount, edges);
 
@@ -1091,6 +1118,17 @@ void World::importFromFile(const string &filename) {
         file.read(reinterpret_cast<char*>(&ElemTop), sizeof(ElemTop));
         file.read(reinterpret_cast<char*>(&ElemBot), sizeof(ElemBot));
         ns.boundaryElemTopToBottom[ElemTop] = ElemBot;
+    }
+
+    int boundaryToGhost_size;
+    file.read(reinterpret_cast<char*>(&boundaryToGhost_size), sizeof(boundaryToGhost_size));
+    ns.boundaryToGhostElements.clear();
+    for(int i = 0; i < boundaryToGhost_size; ++i){
+        int boundaryElem;
+        int ghostElem;
+        file.read(reinterpret_cast<char*>(&boundaryElem), sizeof(boundaryElem));
+        file.read(reinterpret_cast<char*>(&ghostElem), sizeof(ghostElem));
+        ns.boundaryToGhostElements[boundaryElem] = ghostElem;
     }
 
     file.close();

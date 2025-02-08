@@ -236,7 +236,7 @@ void MHDSolver2D::runSolver() {
     for(const auto edge: edgePool.edges){
         double norm = std::sqrt(edge.normalVector[0]*edge.normalVector[0] + edge.normalVector[1]*edge.normalVector[1]);
         if(std::abs(1.0-norm) > 1e-15){
-            std::cout << "bad normal! " << std::abs(1-norm) << std::endl;
+            std::cout << "bad normal! |1 - norm| = " << std::abs(1.0-norm) << " edge.is_ghost = " << edge.is_ghost <<std::endl;
         }
     }
 
