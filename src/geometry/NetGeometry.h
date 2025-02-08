@@ -28,6 +28,7 @@ public:
     double x;
     double y;
     double z;
+    bool is_ghost = false;
     Node() : ind(0), x(0.0), y(0.0), z(0.0) {}
     Node(int index, double xCoord, double yCoord, double zCoord);
 };
@@ -41,6 +42,7 @@ public:
     int neighbourInd1; //номер первого соседнего элемента
     int neighbourInd2; //номер второго соседнего элемента
     double length;  // длина
+    bool is_ghost = false;
     std::vector<double> normalVector; // компоненты вектора нормали
     std::vector<double> midPoint; // центр ребра
     Edge(): ind(0), nodeInd1(0), nodeInd2(0),
@@ -59,6 +61,7 @@ public:
     std::vector<int> edgeIndexes; //номера рёбер
     std::vector<double> centroid2D; // центр элемента
     bool is_boundary = false;
+    bool is_ghost = false;
     double area = 0.0; //площадь
     Element() : ind(0), dim(0), area(0.0), centroid2D(2, 0.0) {}
     Element(const int index, const std::vector<int> &nIndexes, int size);
@@ -150,9 +153,6 @@ public:
     std::vector<int> boundaryBottomNodes; // индексы нижних граничных узлов
     std::vector<int> boundaryBottomElems; // индексы нижних граничных элементов
     std::vector<int> boundaryBottomEdges; // индексы нижних граничных рёбер
-    std::vector<Node> ghostNodes;           // фантомные узлы
-    std::vector<Element> ghostCells;        // фантомные ячейки
-    std::vector<Edge> ghostEdges;         // фантомные ребра
     void setNodePool(const NodePool& np);
     NodePool getNodePool() const;
     void setElementPool(const ElementPool& ep);
@@ -164,6 +164,7 @@ public:
     NeighbourService& getNeighbourService();
     void exportToFile(const std::string& filename) const; // экспорт в бинарный файл
     void importFromFile(const std::string& filename); // импорт из файла узлов и элементов
+    bool isCounterClockwise(const std::vector<int> &nodeIndices);
 };
 
 double areaCalc(const Element& poly, const NodePool& nPool); // подсчёт площади элемента

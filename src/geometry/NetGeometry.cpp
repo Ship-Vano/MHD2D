@@ -600,6 +600,9 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
         int ghostElemInd = ep.elCount;
         int ghostNodeInd = np.nodeCount;
         int ghostEdgeInd = edgp.edgeCount;
+        std::vector<Node> ghostNodes;           // фантомные узлы
+        std::vector<Element> ghostElements;        // фантомные ячейки
+        std::vector<Edge> ghostEdges;         // фантомные ребра
         for(const auto& elem: ep.elements){
             // определяем граничный элемент
             if(elem.is_boundary){
@@ -618,21 +621,52 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
                         Node node3rd = np.getNode(node_before_ind);
                         std::vector<double> reflPoint = reflectNodeOverVector(node3rd, node1st, node2nd);
                         Node reflNode(ghostNodeInd, reflPoint[0], reflPoint[1], 0.0);
-                        ++ghostNodeInd;
-                        np.nodes.push_back(reflNode);
+                        reflNode.is_ghost = true;
 
                         // строим элемент
-                        Element ghostEl(ghostElemInd, {node2nd.ind, node1st.ind, node3rd.ind}, 3);
-                        ++ghostElemInd;
-                        ep.elements.push_back(ghostEl);
+                        std::vector<int> ghostElNodes{node2nd.ind, node1st.ind, ghostNodeInd};
+                        if(!isCounterClockwise(ghostElNodes)){
+                            std::swap(ghostElNodes[0], ghostElNodes[1]);
+                        }
+                        Element ghostEl(ghostElemInd, ghostElNodes, 3);
+                        ghostEl.is_ghost = true;
 
                         // строим рёбра
-                        // добавляем индекс ghost cell в исходный элемент
+                        Edge ghostEdge1(ghostEdgeInd, edge.nodeInd1, ghostNodeInd, ghostElemInd, -1,
+                                        getDistance(edge.nodeInd1, ghostNodeInd, np),
+                                        calculateNormalVector2D(np.getNode(edge.nodeInd1), np.getNode(ghostNodeInd)),
+                                        getMidPoint2D(edge.nodeInd1, ghostNodeInd, np));
+                        ghostEdge1.is_ghost = true;
+                        Edge ghostEdge2(ghostEdgeInd + 1, ghostNodeInd, edge.nodeInd2, ghostElemInd, -1,
+                                        getDistance(ghostNodeInd, edge.nodeInd2, np),
+                                        calculateNormalVector2D(np.getNode(ghostNodeInd), np.getNode(edge.nodeInd2)),
+                                        getMidPoint2D(ghostNodeInd, edge.nodeInd2, np));
+                        ghostEdge2.is_ghost = true;
+
+                        ghostEl.edgeIndexes = std::vector<int>{edge.ind, ghostEdgeInd, ghostEdgeInd + 1};
+                        ghostEl.area = elem.area;
+
+                        // Update indices
+                        ghostNodes.push_back(reflNode);
+                        ghostElements.push_back(ghostEl);
+                        ghostEdges.push_back(ghostEdge1);
+                        ghostEdges.push_back(ghostEdge2);
+                        ++ghostElemInd;
+                        ++ghostNodeInd;
+                        ghostEdgeInd += 2;
                     }
                 }
 
             }
         }
+
+        // Append ghost nodes, elements, and edges to pools
+        np.nodes.insert(np.nodes.end(), ghostNodes.begin(), ghostNodes.end());
+        np.nodeCount = np.nodes.size();
+        ep.elements.insert(ep.elements.end(), ghostElements.begin(), ghostElements.end());
+        ep.elCount = ep.elements.size();
+        edgp.edges.insert(edgp.edges.end(), ghostEdges.begin(), ghostEdges.end());
+        edgp.edgeCount = edgp.edges.size();
     } /*end: 2d variant constructor*/
 }
 
@@ -1085,4 +1119,14 @@ std::vector<double> reflectNodeOverVector(const Node& nodeToReflect, const Node&
 
     return std::vector<double>{ x1 + reflv_x, y1 + reglv_y };
 
+}
+
+bool World::isCounterClockwise(const std::vector<int> &nodeIndices) {
+    double sum = 0;
+    for (size_t i = 0; i < nodeIndices.size(); ++i) {
+        Node n1 = np.getNode(nodeIndices[i]);
+        Node n2 = np.getNode(nodeIndices[(i + 1) % nodeIndices.size()]);
+        sum += (n2.x - n1.x) * (n2.y + n1.y);
+    }
+    return sum > 0; // CCW if sum > 0
 }

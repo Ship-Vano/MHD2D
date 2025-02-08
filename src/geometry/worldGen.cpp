@@ -43,6 +43,9 @@ int main() {
         if (elem.edgeIndexes.empty()) {
             std::cout << "Empty element! (no edges)" << std::endl;
         }
+        if(elem.area <= 0.0){
+            std::cout << "Zero-area element! (elem.area = 0)" << std::endl;
+        }
     }
     bool displayWorld = json_root.get("displayWorld", false).asBool();
     if(displayWorld){
