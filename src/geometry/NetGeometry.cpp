@@ -63,6 +63,19 @@ std::vector<double> getElementCentroid2D(const Element &poly, const NodePool &nP
     return centroid;
 }
 
+std::vector<double> getElementCentroid2D(const std::vector<Node> &nodes) {
+    int dim = nodes.size();
+    std::vector<double> centroid(2, 0.0);
+    for(int i = 0; i < dim; ++i){
+        Node node = nodes[i];
+        centroid[0] += node.x;
+        centroid[1] += node.y;
+    }
+    centroid[0] /= dim;
+    centroid[1] /= dim;
+    return centroid;
+}
+
 // точка середины отрезка между двумя узлами
 std::vector<double> getMidPoint2D(const int nodeInd1, const int nodeInd2, const NodePool &nPool) {
     Node node1 = nPool.getNode(nodeInd1);
@@ -645,7 +658,7 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
 
                         ghostEl.edgeIndexes = std::vector<int>{edge.ind, ghostEdgeInd, ghostEdgeInd + 1};
                         ghostEl.area = elem.area;
-
+                        ghostEl.centroid2D = getElementCentroid2D({node2nd, node1st, reflNode});
                         // Update indices
                         ghostNodes.push_back(reflNode);
                         ghostElements.push_back(ghostEl);

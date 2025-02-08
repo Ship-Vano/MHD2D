@@ -170,6 +170,7 @@ public:
 double areaCalc(const Element& poly, const NodePool& nPool); // подсчёт площади элемента
 
 std::vector<double> getElementCentroid2D(const Element& poly, const NodePool& nPool); // подсчёт середины элемента
+std::vector<double> getElementCentroid2D(const std::vector<Node> &nodes);
 
 std::vector<double> getMidPoint2D(const int nodeInd1, const int nodeInd2, const NodePool& nPool); // подсчёт середины отрезка, соединяющего два узла
 
