@@ -498,6 +498,9 @@ void writeVTU(const std::string& filename, const World& geometryWorld, const std
     const NodePool& np = geometryWorld.getNodePool();
     const ElementPool& ep = geometryWorld.getElementPool();
 
+    const int ghostElemCount = geometryWorld.ghostElemCount;
+    const int ghostNodeCount = geometryWorld.ghostNodeCount;
+
     std::ofstream file(filename);
 
     if (!file.is_open()) {
@@ -507,13 +510,14 @@ void writeVTU(const std::string& filename, const World& geometryWorld, const std
     file << "<?xml version=\"1.0\"?>\n";
     file << "<VTKFile type=\"UnstructuredGrid\" version=\"0.1\" byte_order=\"LittleEndian\">\n";
     file << "  <UnstructuredGrid>\n";
-    file << "    <Piece NumberOfPoints=\"" << np.nodeCount << "\" NumberOfCells=\"" << ep.elCount << "\">\n";
+    file << "    <Piece NumberOfPoints=\"" << np.nodeCount - ghostNodeCount << "\" NumberOfCells=\"" << ep.elCount - ghostElemCount << "\">\n";
 
     // Write points (nodes)
     file << "      <Points>\n";
     file << "        <DataArray type=\"Float64\" NumberOfComponents=\"3\" format=\"ascii\">\n";
     for (const auto& node : np.nodes) {
-        file << "          " << node.x << " " << node.y << " " << node.z << "\n";
+        if(!node.is_ghost)
+            file << "          " << node.x << " " << node.y << " " << node.z << "\n";
     }
     file << "        </DataArray>\n";
     file << "      </Points>\n";
@@ -524,10 +528,12 @@ void writeVTU(const std::string& filename, const World& geometryWorld, const std
     // Connectivity
     file << "        <DataArray type=\"Int32\" Name=\"connectivity\" format=\"ascii\">\n";
     for (const auto& element : ep.elements) {
-        for (const auto& nodeIndex : element.nodeIndexes) {
-            file << "          " << nodeIndex << " ";
+        if(!element.is_ghost) {
+            for (const auto &nodeIndex: element.nodeIndexes) {
+                file << "          " << nodeIndex << " ";
+            }
+            file << "\n";
         }
-        file << "\n";
     }
     file << "        </DataArray>\n";
 
@@ -535,18 +541,22 @@ void writeVTU(const std::string& filename, const World& geometryWorld, const std
     file << "        <DataArray type=\"Int32\" Name=\"offsets\" format=\"ascii\">\n";
     int offset = 0;
     for (const auto& element : ep.elements) {
-        offset += element.dim;
-        file << "          " << offset << "\n";
+        if(!element.is_ghost) {
+            offset += element.dim;
+            file << "          " << offset << "\n";
+        }
     }
     file << "        </DataArray>\n";
 
     // Types
     file << "        <DataArray type=\"UInt8\" Name=\"types\" format=\"ascii\">\n";
     for (const auto& element : ep.elements) {
-        if (element.dim == 3) {
-            file << "          5\n"; // Triangle
-        } else if (element.dim == 4) {
-            file << "          9\n"; // Quadrilateral
+        if(!element.is_ghost) {
+            if (element.dim == 3) {
+                file << "          5\n"; // Triangle
+            } else if (element.dim == 4) {
+                file << "          9\n"; // Quadrilateral
+            }
         }
     }
     file << "        </DataArray>\n";

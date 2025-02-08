@@ -676,7 +676,9 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
                         ghostEdges.push_back(ghostEdge1);
                         ghostEdges.push_back(ghostEdge2);
                         ++ghostElemInd;
+                        ++ghostElemCount;
                         ++ghostNodeInd;
+                        ++ghostNodeCount;
                         ghostEdgeInd += 2;
                     }
                 }
@@ -912,6 +914,10 @@ void World::exportToFile(const string &filename) const{
         file.write(reinterpret_cast<const char*>(&ghost), sizeof(ghost));
     }
 
+    // Count of ghost elems and nodes (X_x)
+    file.write(reinterpret_cast<const char*>(&ghostElemCount), sizeof(ghostElemCount));
+    file.write(reinterpret_cast<const char*>(&ghostNodeCount), sizeof(ghostNodeCount));
+
     file.close();
     std::cout << "World exported to " << filename << std::endl;
 }
@@ -1130,6 +1136,10 @@ void World::importFromFile(const string &filename) {
         file.read(reinterpret_cast<char*>(&ghostElem), sizeof(ghostElem));
         ns.boundaryToGhostElements[boundaryElem] = ghostElem;
     }
+
+    // Count of ghost elems and nodes (X_x)
+    file.read(reinterpret_cast<char*>(&ghostElemCount), sizeof(ghostElemCount));
+    file.read(reinterpret_cast<char*>(&ghostNodeCount), sizeof(ghostNodeCount));
 
     file.close();
     std::cout << "World imported from " << filename << std::endl;

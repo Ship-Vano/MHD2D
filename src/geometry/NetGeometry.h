@@ -142,6 +142,8 @@ public:
     double minX; // минимальное значение абсциссы
     double maxY; // максимальное значение ординаты
     double minY; // минимальное значение ординаты
+    int ghostElemCount = 0; // количество призрачных ячеек
+    int ghostNodeCount = 0;
     std::vector<int> boundaryLeftNodes; // индексы левых граничных узлов
     std::vector<int> boundaryLeftElems; // индексы левых граничных элементов
     std::vector<int> boundaryLeftEdges; // индексы левых граничных рёбер
