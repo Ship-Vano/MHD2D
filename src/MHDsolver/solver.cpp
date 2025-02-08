@@ -23,6 +23,7 @@ int main(){
     int taskType = json_root.get("taskType", 1).asInt();
     double finalTime = json_root.get("finalTime", 0.1).asDouble();
     bool debugDivergence = json_root.get("debugDivergence", false).asBool();
+    bool ghostOutput = json_root.get("ghostOutput", false).asBool();
     int iterationsPerFrame = json_root.get("iterationsPerFrame", 10).asInt();
     // world.display();
     //std::cin.get();
@@ -32,12 +33,13 @@ int main(){
     solver.finalTime = finalTime;
     solver.debugDivergence = debugDivergence;
     solver.iterationsPerFrame = iterationsPerFrame;
+    solver.ghostOutput = ghostOutput;
     solver.runSolver();
     std::cout << "solver complete" << std::endl;
 
     std::string exportFileName = json_root.get("exportFileName", "OutputData/unnamed_res.vtu").asString();
     std::cout << "Writing vtu output to " << exportFileName << std::endl;
-    writeVTU(exportFileName, world, solver.elemUs);
+    solver.writeVTU(exportFileName, ghostOutput);
 
     return 0;
 }
