@@ -176,4 +176,6 @@ double getDistance(const int nodeInd1, const int nodeInd2, const NodePool& nPool
 
 void setNeighbourEdge(Element& el, const int edgeInd);
 
+std::vector<double> reflectNodeOverVector(const Node& nodeToReflect, const Node& node1, const Node& node2);
+
 #endif // MAGNETTOPRJCT_NETGEOMETRY_H

@@ -29,6 +29,7 @@ int main() {
         testCentroidCalc();
         testEdgePool();
         testNeighbourService();
+        testReflectPointOverVector();
     }
 
     std::string dataFileName = json_root.get("fileName", "").asString();
@@ -36,6 +37,7 @@ int main() {
     omp_set_num_threads(omp_get_max_threads());
     World world(dataFileName, false);
     std::cout << "World has been generated successfully!" << std::endl;
+    std::cout << "[INFO]: NNodes = " << world.getNodePool().nodeCount << ", NElems = " << world.getElementPool().elCount << std::endl;
 
     for (const auto &elem: world.getElementPool().elements) {
         if (elem.edgeIndexes.empty()) {

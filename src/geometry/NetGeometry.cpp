@@ -597,9 +597,9 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
         }
 
         // ghost cells generation
-        int ghostElemInd = 0;
-        int ghostNodeInd = 0;
-        int ghostEdgeInd = 0;
+        int ghostElemInd = ep.elCount;
+        int ghostNodeInd = np.nodeCount;
+        int ghostEdgeInd = edgp.edgeCount;
         for(const auto& elem: ep.elements){
             // определяем граничный элемент
             if(elem.is_boundary){
@@ -613,8 +613,19 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
                         int node_before_ind =
                                 nodeInElemInd == elem.nodeIndexes.begin() ? elem.nodeIndexes[elem.dim - 1] : *(
                                         nodeInElemInd - 1);
+                        Node node1st = np.getNode(edge.nodeInd1);
+                        Node node2nd = np.getNode(edge.nodeInd2);
                         Node node3rd = np.getNode(node_before_ind);
+                        std::vector<double> reflPoint = reflectNodeOverVector(node3rd, node1st, node2nd);
+                        Node reflNode(ghostNodeInd, reflPoint[0], reflPoint[1], 0.0);
+                        ++ghostNodeInd;
+                        np.nodes.push_back(reflNode);
+
                         // строим элемент
+                        Element ghostEl(ghostElemInd, {node2nd.ind, node1st.ind, node3rd.ind}, 3);
+                        ++ghostElemInd;
+                        ep.elements.push_back(ghostEl);
+
                         // строим рёбра
                         // добавляем индекс ghost cell в исходный элемент
                     }
@@ -1041,4 +1052,37 @@ void World::importFromFile(const string &filename) {
 
 void setNeighbourEdge(Element& el, const int edgeInd){
     el.nodeIndexes.push_back(edgeInd);
+}
+
+std::vector<double> reflectNodeOverVector(const Node& nodeToReflect, const Node& node1, const Node& node2){
+
+    double x1 = node1.x;
+    double y1 = node1.y;
+    double x2 = node2.x;
+    double y2 = node2.y;
+    double x3 = nodeToReflect.x; // point to reflect
+    double y3 = nodeToReflect.y; // point to reflect
+
+    double ab_x = x2 - x1;
+    double ab_y = y2 - y1;
+    double ac_x = x3 - x1;
+    double ac_y = y3 - y1;
+
+    // AC proj on AB
+    double ab_sqr = ab_x * ab_x + ab_y * ab_y;
+    double ac_cdot_ab = ac_x * ab_x + ac_y * ab_y;
+    double coef = ac_cdot_ab / ab_sqr;
+    double proj_x = coef * ab_x;
+    double proj_y = coef * ab_y;
+
+    // perpendicular part
+    double perp_x = ac_x - proj_x;
+    double perp_y = ac_y - proj_y;
+
+    // The reflected vector
+    double reflv_x = proj_x - perp_x;
+    double reglv_y = proj_y - perp_y;
+
+    return std::vector<double>{ x1 + reflv_x, y1 + reglv_y };
+
 }
