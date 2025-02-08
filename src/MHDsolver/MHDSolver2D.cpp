@@ -37,7 +37,7 @@ std::vector<double> MHDSolver2D::applyLimiter(const std::vector<double>& U_left,
 // ({cos(j), sin(j), 0}, {-sin(j), cos(j), 0}, {0,0,1}) --- around OZ clockwise
 // rotate 1: from normal to OX:      {v.x * n.x + vy * n.y, - v.x * n.y + v.y * n.x, v.z}
 // вращаем {u,v,w} и {Bx, By, Bz}, остальные остаются на месте
-std::vector<double> MHDSolver2D::rotateStateFromAxisToNormal(vector<double> &U, const vector<double>& n) {
+std::vector<double> MHDSolver2D::rotateStateFromAxisToNormal(std::vector<double> &U, const std::vector<double>& n) {
     std::vector<double> res(U);
     res[1] =  U[1]*n[0] + U[2]*n[1];
     res[2] = -U[1]*n[1] + U[2]*n[0];
@@ -354,7 +354,7 @@ void MHDSolver2D::runSolver() {
                 int ghostIndBot = bot - innerElemCount;
                 auto ghostTop = ghostElemUs[ghostIndTop];
                 ghostElemUs[ghostIndTop] =  ghostElemUs[ghostIndBot ];
-                ghostElemUs[ghostIndBot ] = ghostTop;
+                ghostElemUs[ghostIndBot] = ghostTop;
             }
             for(const auto& [left, right]: ns.boundaryElemLeftToRight){
                 int ghostIndLeft = left - innerElemCount;
@@ -374,14 +374,23 @@ void MHDSolver2D::runSolver() {
 
         // вычисляем потоки, проходящие через каждое ребро
         // инициализируем вектор потоков через рёбра // MHD (HLLD) fluxes (from one element to another "<| -> |>")
-        std::vector<std::vector<double>> fluxes(edgePool.edgeCount, std::vector<double>(8, 0.0));
-        std::vector<std::vector<double>> unrotated_fluxes(edgePool.edgeCount, std::vector<double>(8, 0.0));
+        std::vector<std::vector<double>> fluxes(edgePool.edges.size(), std::vector<double>(8, 0.0));
+        std::vector<std::vector<double>> unrotated_fluxes(edgePool.edges.size(), std::vector<double>(8, 0.0));
 //#pragma parallel for
         for (const auto &edge: edgePool.edges) {
+            if(edge.neighbourInd1 < 0 || edge.neighbourInd1 >= elPool.elements.size()){
+                std::cout << "INVALID EPTA!!!" << std::endl;
+            }
+            if(edge.ind >= edgePool.edges.size() || edge.ind < 0){
+                std::cout << "INVALID EPTA edgeind!!!" << std::endl;
+            }
             Element neighbour1 = elPool.elements[edge.neighbourInd1];
             std::vector<double> U1 = rotateStateFromAxisToNormal(elemUs_prev[neighbour1.ind], edge.normalVector);
             if(neighbour1.is_boundary){
                 int ghostInd = ns.boundaryToGhostElements[neighbour1.ind] - innerElemCount;
+                if(ghostInd >= ghostElemUs.size() || ghostInd < 0){
+                    std::cout << "INVALID ERPTA 3" << std::endl;
+                }
                 std::vector<double> U2 = rotateStateFromAxisToNormal(ghostElemUs[ghostInd], edge.normalVector);
                 fluxes[edge.ind] = HLLD_flux(U1, U2, gam_hcr);
                 unrotated_fluxes[edge.ind] = fluxes[edge.ind];
