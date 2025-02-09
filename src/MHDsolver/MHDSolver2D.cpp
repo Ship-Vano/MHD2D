@@ -368,16 +368,14 @@ void MHDSolver2D::runSolver() {
             for(const auto& [top, bot]: ns.boundaryElemTopToBottom){
                 int ghostIndTop = ns.boundaryToGhostElements[top] - innerElemCount;
                 int ghostIndBot = ns.boundaryToGhostElements[bot] - innerElemCount;
-                auto ghostTop = ghostElemUs_prev[ghostIndTop];
-                ghostElemUs_prev[ghostIndTop] =  ghostElemUs_prev[ghostIndBot];
-                ghostElemUs_prev[ghostIndBot] = ghostTop;
+                ghostElemUs_prev[ghostIndTop] =  elemUs_prev[bot];
+                ghostElemUs_prev[ghostIndBot] = elemUs_prev[top];
             }
             for(const auto& [left, right]: ns.boundaryElemLeftToRight){
                 int ghostIndLeft = ns.boundaryToGhostElements[left] - innerElemCount;
                 int ghostIndRight = ns.boundaryToGhostElements[right] - innerElemCount;
-                auto ghostLeft = ghostElemUs_prev[ghostIndLeft];
-                ghostElemUs_prev[ghostIndLeft] =  ghostElemUs_prev[ghostIndRight];
-                ghostElemUs_prev[ghostIndRight] = ghostLeft;
+                ghostElemUs_prev[ghostIndLeft] =  elemUs_prev[right];
+                ghostElemUs_prev[ghostIndRight] = elemUs_prev[left];
             }
         }
         /*else{*/
