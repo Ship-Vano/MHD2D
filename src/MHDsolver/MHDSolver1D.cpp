@@ -123,11 +123,11 @@ double cfast(const std::vector<double>& U, const double& gam_hcr) {
     //p
     //double p = std::max(pressure(gam_hcr, e, rho, u, v, w, Bx, By, Bz), 1e-15);
     double p = pressure(gam_hcr, e, rho, u, v, w, Bx, By, Bz);
-    if (rho <= 0.0 || p <= 0.0) {
+    /*if (rho <= 0.0 || p <= 0.0) {
         std::cerr << "Warning: Unphysical state detected in cfast. "
                   << "rho = " << rho << ", p = " << p << std::endl;
         std::cin.get();
-    }
+    }*/
 
     double cfast = std::sqrt((gam_hcr * p + BB + std::sqrt((gam_hcr * p + BB) * (gam_hcr * p + BB) - 4 * gam_hcr * p * Bx * Bx)) / (2 * rho));
 
@@ -323,13 +323,13 @@ std::vector<double> HLLD_flux(const std::vector<double>& U_L, const std::vector<
     double p_R = pressure(gam_hcr, e_R, rho_R, u_R, v_R, w_R, Bx_R, By_R, Bz_R);
     double pT_R = ptotal(p_R, Bx_R, By_R, Bz_R);
 
-    //double Bx = (Bx_L + Bx_R)/2;
-    // или взять среднее по Роу
-    double Bx = (std::sqrt(rho_L)*Bx_L + std::sqrt(rho_R)*Bx_R) / (std::sqrt(rho_L) + std::sqrt(rho_R));
-
     //быстрые магнитозвуковые скорости на левом и правом концах
     double cf_L = cfast(U_L, gam_hcr);
     double cf_R = cfast(U_R, gam_hcr);
+
+    //double Bx = (Bx_L + Bx_R)/2;
+    // или взять среднее по Роу
+    double Bx = (std::sqrt(rho_L)*Bx_L + std::sqrt(rho_R)*Bx_R) / (std::sqrt(rho_L) + std::sqrt(rho_R));
 
     //скорость левого сигнала, рассчитываемая как минимальное значение скорости левого состояния (uL) и быстрой магнитозвуковой скорости (cfL).
     //double SL = std::min(u_L - cf_L, u_R - cf_R);

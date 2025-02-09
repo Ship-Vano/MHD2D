@@ -5,6 +5,10 @@
 
 #include "NetGeometry.h"
 
+template <typename T> int sgn(T val) {
+    return (T(0) < val) - (val < T(0));
+}
+
 // узел: конструктор по умолчанию
 Node::Node(int index, double xCoord, double yCoord, double zCoord)
         : ind(index), x(xCoord), y(yCoord), z(zCoord) {}
@@ -199,7 +203,7 @@ EdgePool::EdgePool(const NodePool& np, ElementPool& ep) {
 
         // ориентвция ребра
         int orientation = 1;
-        orientation = normalVector * neighbour1ToEdgeMidVector > 0 ? 1 : -1; // скалярное произведение нормали и вектора центр-середина
+        orientation = sgn(normalVector * neighbour1ToEdgeMidVector); // скалярное произведение нормали и вектора центр-середина
                                                                                                             //     nei1->nei2
         // корректируем нормаль  (нормаль будет идти от первого соседа ко второму)                                  <| -> |>
         if(orientation < 0){
@@ -694,6 +698,19 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
         edgp.edges.insert(edgp.edges.end(), ghostEdges.begin(), ghostEdges.end());
         edgp.edgeCount = edgp.edges.size();
 
+
+        // Обновлениеmap узел -> соседи-рёбра
+        ns.nodeToEdgesMap.clear();
+        ns.nodeToEdgesMap.reserve(np.nodeCount);
+#pragma omp parallel for
+        for (size_t edgeIndex = 0; edgeIndex < edgp.edges.size(); ++edgeIndex) {
+            const auto& edge = edgp.edges[edgeIndex];
+#pragma omp critical(nodeToEdgesMap)
+            {
+                ns.nodeToEdgesMap[edge.nodeInd1].push_back(edgeIndex);
+                ns.nodeToEdgesMap[edge.nodeInd2].push_back(edgeIndex);
+            }
+        }
     } /*end: 2d variant constructor*/
 }
 
