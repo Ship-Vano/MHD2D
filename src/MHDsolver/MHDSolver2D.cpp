@@ -81,7 +81,7 @@ std::vector<double> MHDSolver2D::rotateStateFromNormalToAxisX(vector<double> &U,
 }
 
 // условие Куранта (имплементация №1) (элементы)
-double MHDSolver2D::tau_from_cfl2D(const double& sigma, const double& hx, const double& hy, const std::vector<std::vector<double>>& states, const double& gam_hcr) {
+double MHDSolver2D::tau_from_cfl2D(const double& sigma, const double& hx, const std::vector<std::vector<double>>& states, const double& gam_hcr) {
     double max_speed = 0.0;
     for (const auto& state : states) {
         // для cfast брать модули в-в v и B
@@ -91,13 +91,13 @@ double MHDSolver2D::tau_from_cfl2D(const double& sigma, const double& hx, const 
         double cf = cfast(state, gam_hcr);
         //double local_speed = (u + cf) / hx + (v + cf) / hy;
         //max_speed = std::max(max_speed, local_speed);
-        max_speed = std::max(max_speed, (std::sqrt(u*u + v*v + w*w) + cf)/hx);
+        max_speed = std::max(max_speed, std::sqrt(u*u + v*v + w*w) + cf);
     }
     if(max_speed < 1e-16){
         max_speed = 1e-14;
     }
-    double tau = sigma / max_speed;
-    const double max_tau = 1e-2; // Define maximum allowable time step
+    double tau = sigma * hx / max_speed;
+    const double max_tau = 1e-3; // Define maximum allowable time step
     return std::min(tau, max_tau);
 }
 
@@ -201,15 +201,15 @@ void MHDSolver2D::setInitElemUs() {
     else if(task_type == 2){
         std::cout << "SOLVING TASKTYPE 2 (ALFVEN WAVE TEST)" << std::endl;
         double r = 6.0;
-        double nx = 1.0/*1.0 / std::sqrt(r * r + 1)*/;
-        double ny = 0.0/*r / std::sqrt(r * r + 1)*/;
+        double nx = 0.0/*1.0 / std::sqrt(r * r + 1)*/;
+        double ny = 1.0/*r / std::sqrt(r * r + 1)*/;
         double rho0 = 1.0;
         double p0 = 1.0;
         double v0 = 0.0;
         double B0 = 1.0;
         double xi = 0.2;
         gam_hcr = 5.0/3.0;
-        cflNum = 0.2;
+        cflNum = 0.1;
         periodicBoundaries = true;
         initElemUs.resize(innerElemCount, std::vector<double>(8, 0.0));
         initEdgeUs.resize(innerEdgeCount, std::vector<double>(8, 0.0));
@@ -312,7 +312,7 @@ void MHDSolver2D::runSolver() {
         //edgeUs_prev.swap(edgeUs);
 
        // tau = std::max(min_tau, tau_from_cfl2D(cflNum, h, edgeUs_prev, gam_hcr, edgePool));
-        tau = std::max(min_tau, tau_from_cfl2D(cflNum, h, h, elemUs_prev, gam_hcr));
+        tau = std::max(min_tau, tau_from_cfl2D(cflNum, h,  elemUs, gam_hcr));
         // ограничение: в tauCfl идут только граничные состояния (требуется убрать после отладки гран условий)
         /*std::vector<std::vector<double>> usForCFL;
         for(const auto & elem: elPool.elements){
@@ -357,31 +357,32 @@ void MHDSolver2D::runSolver() {
         // г.у (фикт ячейки) поставить перед выч-м потоков
 
 
+        // копируем значения в соответствующие фантомные ячейки (условие free flow)
+        for(const auto& [boundary, ghost] : ns.boundaryToGhostElements){
+            int ghostInd = ghost - innerElemCount;
+            ghostElemUs_prev[ghostInd] = elemUs_prev[boundary];
+        }
 
         if(periodicBoundaries){
             // периодическое г.у.
             for(const auto& [top, bot]: ns.boundaryElemTopToBottom){
-                int ghostIndTop = top - innerElemCount;
-                int ghostIndBot = bot - innerElemCount;
+                int ghostIndTop = ns.boundaryToGhostElements[top] - innerElemCount;
+                int ghostIndBot = ns.boundaryToGhostElements[bot] - innerElemCount;
                 auto ghostTop = ghostElemUs_prev[ghostIndTop];
-                ghostElemUs_prev[ghostIndTop] =  ghostElemUs_prev[ghostIndBot ];
+                ghostElemUs_prev[ghostIndTop] =  ghostElemUs_prev[ghostIndBot];
                 ghostElemUs_prev[ghostIndBot] = ghostTop;
             }
             for(const auto& [left, right]: ns.boundaryElemLeftToRight){
-                int ghostIndLeft = left - innerElemCount;
-                int ghostIndRight = right - innerElemCount;
+                int ghostIndLeft = ns.boundaryToGhostElements[left] - innerElemCount;
+                int ghostIndRight = ns.boundaryToGhostElements[right] - innerElemCount;
                 auto ghostLeft = ghostElemUs_prev[ghostIndLeft];
                 ghostElemUs_prev[ghostIndLeft] =  ghostElemUs_prev[ghostIndRight];
                 ghostElemUs_prev[ghostIndRight] = ghostLeft;
             }
         }
-        else{
-            // копируем значения в соответствующие фантомные ячейки (условие free flow)
-            for(const auto& [boundary, ghost] : ns.boundaryToGhostElements){
-                int ghostInd = ghost - innerElemCount;
-                ghostElemUs_prev[ghostInd] = elemUs_prev[boundary];
-            }
-        }
+        /*else{*/
+
+        /*}*/
 
         // вычисляем потоки, проходящие через каждое ребро
         // инициализируем вектор потоков через рёбра // MHD (HLLD) fluxes (from one element to another "<| -> |>")
@@ -477,9 +478,31 @@ void MHDSolver2D::runSolver() {
                                                         nodeMagDiffs[edge.nodeInd2]);
         }
 
+        // копируем значения в соответствующие фантомные ячейки (условие free flow)
+        for(const auto& [boundary, ghost] : ns.boundaryToGhostElements){
+            int ghostInd = ghost - innerElemCount;
+            ghostBNs[ghostInd] = bNs[boundary];
+        }
+        if(periodicBoundaries){
+            for(const auto& [top, bot]: ns.boundaryElemTopToBottom){
+                int ghostIndTop = ns.boundaryToGhostElements[top] - innerElemCount;
+                int ghostIndBot = ns.boundaryToGhostElements[bot] - innerElemCount;
+                auto ghostTop = ghostBNs[ghostIndTop];
+                ghostBNs[ghostIndTop] =  ghostBNs[ghostIndBot];
+                ghostBNs[ghostIndBot] = ghostTop;
+            }
+            for(const auto& [left, right]: ns.boundaryElemLeftToRight){
+                int ghostIndLeft = ns.boundaryToGhostElements[left] - innerElemCount;
+                int ghostIndRight = ns.boundaryToGhostElements[right] - innerElemCount;
+                auto ghostLeft = ghostBNs[ghostIndLeft];
+                ghostBNs[ghostIndLeft] =  ghostBNs[ghostIndRight];
+                ghostBNs[ghostIndRight] = ghostLeft;
+            }
+        }
+
         //сносим Bn в центр элемента
 //#pragma omp parallel for
-        for (int i = 0; i < innerElemCount; ++i) {
+        for (int i = 0; i < elPool.elCount; ++i) {
             Element elem = elPool.elements[i];
             std::vector<double> centroid = getElementCentroid2D(elem, nodePool);
             if(elem.edgeIndexes.empty()){
@@ -496,11 +519,17 @@ void MHDSolver2D::runSolver() {
                     int node_before_ind =
                             nodeInElemInd == elem.nodeIndexes.begin() ? elem.nodeIndexes[elem.dim - 1] : *(
                                     nodeInElemInd - 1);
-                    //std::cout << "current ind = " << edge.nodeInd1 <<" Elem's node indexes: " << elem.nodeIndexes[0] << " "<< elem.nodeIndexes[1] << " "<< elem.nodeIndexes[2] << ", node_beforeInd = " << node_before_ind << std::endl;
+                    //std::cout << "edge of nodes = {"<< edge.nodeInd1 << " , " << edge.nodeInd2 << " } current ind = " << edge.nodeInd1 <<" Elem's node indexes: " << elem.nodeIndexes[0] << " "<< elem.nodeIndexes[1] << " "<< elem.nodeIndexes[2] << ", node_beforeInd = " << node_before_ind << std::endl;
                     //std::cin.get();
                     Node node_before = nodePool.getNode(node_before_ind);
-                    /*elemUs[elem.ind][5]*/temp_sum_Bx += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
-                    /*elemUs[elem.ind][6]*/temp_sum_By += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                    if(edgeInd < innerEdgeCount) {
+                        temp_sum_Bx += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
+                        temp_sum_By += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                    }
+                    else{
+                        temp_sum_Bx += ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
+                        temp_sum_By += ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                    }
                 } else {
                     // а вот для второго нужно умножать на -1 и в обратном порядке
                     const auto nodeInElemInd = std::find(elem.nodeIndexes.begin(), elem.nodeIndexes.end(),
@@ -509,26 +538,28 @@ void MHDSolver2D::runSolver() {
                             nodeInElemInd == elem.nodeIndexes.begin() ? elem.nodeIndexes[elem.dim - 1] : *(
                                     nodeInElemInd - 1);
                     //        auto itNode1 = std::find(elementNodes.begin(), elementNodes.end(), node2);
+                    //std::cout << "edge of nodes = {"<< edge.nodeInd1 << " , " << edge.nodeInd2 << " } current ind = " << edge.nodeInd1 <<" Elem's node indexes: " << elem.nodeIndexes[0] << " "<< elem.nodeIndexes[1] << " "<< elem.nodeIndexes[2] << ", node_beforeInd = " << node_before_ind << std::endl;
+                    //std::cin.get();
                     Node node_before = nodePool.getNode(node_before_ind);
-                    /*elemUs[elem.ind][5]*/temp_sum_Bx -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
-                    /*elemUs[elem.ind][6]*/temp_sum_By -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                    if(edgeInd < innerEdgeCount) {
+                        temp_sum_Bx -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
+                        temp_sum_By -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                    }
+                    else{
+                        temp_sum_Bx -= ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
+                        temp_sum_By -= ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                    }
                 }
             }
-            elemUs[elem.ind][5] = temp_sum_Bx;
-            elemUs[elem.ind][6] = temp_sum_By;
+            if(elem.ind < innerElemCount) {
+                elemUs[elem.ind][5] = temp_sum_Bx;
+                elemUs[elem.ind][6] = temp_sum_By;
+            }
+            else{
+                ghostElemUs[elem.ind - innerElemCount][5] = temp_sum_Bx;
+                ghostElemUs[elem.ind - innerElemCount][6] = temp_sum_By;
+            }
         }
-
-       /* for(const auto& edge: edgePool.edges){
-            vector<double> state1 = elemUs[edge.neighbourInd1];
-            if(edge.neighbourInd2 > -1) {
-                vector<double> state2 = elemUs[edge.neighbourInd2];
-                //edgeUs[edge.ind] = 0.5 * (state1 + state2);
-                edgeUs[edge.ind] = (1/ (std::sqrt(state1[0]) + std::sqrt(state2[0]))) * (std::sqrt(state1[0])*state1 + std::sqrt(state2[0])*state2);
-            }
-            else {
-                edgeUs[edge.ind] = state1;
-            }
-        }*/
 
         ++iterations;
 

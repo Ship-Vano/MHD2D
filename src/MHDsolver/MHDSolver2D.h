@@ -46,7 +46,7 @@ public:
 
     std::vector<double> rotateStateFromNormalToAxisX(std::vector<double>& U, const std::vector<double>& n);
     std::vector<double> rotateStateFromAxisToNormal(std::vector<double>& U, const std::vector<double>& n);
-    double tau_from_cfl2D(const double& sigma, const double& hx, const double& hy, const std::vector<std::vector<double>>& states, const double& gam_hcr);
+    double tau_from_cfl2D(const double& sigma, const double& hx, const std::vector<std::vector<double>>& states, const double& gam_hcr);
     double tau_from_cfl2D(const double& sigma, const double& min_h, std::vector<std::vector<double>>& edgeStates, const double& gam_hcr,
                           const EdgePool& ep);
     void setInitElemUs();
