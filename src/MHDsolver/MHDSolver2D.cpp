@@ -542,7 +542,7 @@ void MHDSolver2D::runSolver() {
                 Edge neighbourEdge = edgePool.edges[neighbourEdgeInd];
                 if(elPool.elements[neighbourEdge.neighbourInd1].is_ghost){
                     //std::cout << "SEE A GHOST!" << std::endl;
-                    continue;
+                    //continue;
                 }
                 Node node1 = nodePool.getNode(neighbourEdge.nodeInd1);
                 Node node2 = nodePool.getNode(neighbourEdge.nodeInd2);
@@ -550,12 +550,12 @@ void MHDSolver2D::runSolver() {
                 double u = edgeUs[neighbourEdgeInd][1]/edgeUs[neighbourEdgeInd][0];
                 double v = edgeUs[neighbourEdgeInd][2]/edgeUs[neighbourEdgeInd][0];
                 if(neighbourEdge.nodeInd1 == node.ind){
-                    //inflowOrientation = sgn((u*(node1.x - node2.x) + v*(node1.y - node2.y)));
+                    inflowOrientation = sgn((u*(node1.x - node2.x) + v*(node1.y - node2.y)));
                     //std::cout << "scalar mult = " << (u*(node1.x - node2.x) + v*(node1.y - node2.y)) <<" , orient = " << inflowOrientation <<std::endl;
                     //std::cin.get();
                 }
                 else if(neighbourEdge.nodeInd2 == node.ind){
-                    //inflowOrientation =  sgn((u*(node2.x - node1.x) + v*(node2.y - node1.y)));
+                    inflowOrientation =  sgn((u*(node2.x - node1.x) + v*(node2.y - node1.y)));
                     //std::cout << "scalar mult = " <<  (u*(node2.x - node1.x) + v*(node2.y - node1.y))  <<" , orient = " << inflowOrientation <<std::endl;
                     //std::cin.get();
                 }
@@ -627,7 +627,7 @@ void MHDSolver2D::runSolver() {
                         temp_sum_By += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
                     }
                     else{
-                        continue;
+                        //continue;
                         temp_sum_Bx += ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
                         temp_sum_By += ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
                     }
@@ -647,7 +647,7 @@ void MHDSolver2D::runSolver() {
                         temp_sum_By -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
                     }
                     else{
-                        continue;
+                        //continue;
                         temp_sum_Bx -= ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
                         temp_sum_By -= ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
                     }
