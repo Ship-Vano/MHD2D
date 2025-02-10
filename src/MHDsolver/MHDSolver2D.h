@@ -21,7 +21,7 @@ public:
     double tau = 0.0001; // шаг по времени
     double min_tau = 1e-7; // минимальный шаг по времени
     double cflNum = 0.4; // число Куранта
-    int MAX_ITERATIONS = 100; // максимальное число итераций
+    int MAX_ITERATIONS = 1000000; // максимальное число итераций
     int iterationsPerFrame = 10; // число итераций для записи в файл
     int task_type = 1; // тип задачи
     bool periodicBoundaries = false; // флаг: периодические г.у.

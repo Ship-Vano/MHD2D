@@ -4,6 +4,41 @@
 
 #include "MHDSolver2D.h"
 
+double gas_energy(const double& gam_hcr, const double& gas_p, const double& rho, const double& u, const double& v, const double& w){
+    return gas_p / (gam_hcr - 1.0) + rho * (u * u + v * v + w * w) / 2.0;
+}
+
+
+// Вектор состояния из параметров
+std::vector<double>
+state_from_primitive_vars2D(const double &rho, const double &u, const double &v, const double &w, const double &p,
+                            const double &Bx, const double &By, const double &Bz, const double &gam_hcr) {
+    std::vector<double> U(8,0.0);
+
+    double mx = rho * u;
+    double my = rho * v;
+    double mz = rho * w;
+    //double e = energy(gam_hcr, p, rho, u, v, w, Bx, By, Bz);
+    double e = gas_energy(gam_hcr, p, rho, u, v, w);
+    U[0] = rho;
+    U[1] = mx;
+    U[2] = my;
+    U[3] = mz;
+    U[4] = e;
+    U[5] = Bx;
+    U[6] = By;
+    U[7] = Bz;
+
+    return U;
+}
+
+std::vector<double> state_from_primitive_vars2D(const std::vector<double>& primitiveVars){
+    /*rho  u   v   w   p   Bx   By   Bz  gam_hcr*/
+    return state_from_primitive_vars2D(primitiveVars[0], primitiveVars[1], primitiveVars[2],
+                                       primitiveVars[3], primitiveVars[4], primitiveVars[5],
+                                       primitiveVars[6], primitiveVars[7], primitiveVars[8]);
+}
+
 template <typename T> int sgn(T val) {
     return (T(0) < val) - (val < T(0));
 }
@@ -222,10 +257,10 @@ void MHDSolver2D::setInitElemUs() {
             double By_0 = B0 * ny - xi * nx * std::sqrt(4 * M_PI * rho0) * std::cos(phase);
             double Bz_0 = - xi * std::sqrt(4 * M_PI * rho0) * std::sin(phase);
             if(i < innerElemCount) {
-                initElemUs[elem.ind] = state_from_primitive_vars(rho0, u_0, v_0, w_0, p0, Bx_0, By_0, Bz_0, gam_hcr);
+                initElemUs[elem.ind] = state_from_primitive_vars2D(rho0, u_0, v_0, w_0, p0, Bx_0, By_0, Bz_0, gam_hcr);
             }
             else{
-                initGhostElemUs[elem.ind-innerElemCount] = state_from_primitive_vars(rho0, u_0, v_0, w_0, p0, Bx_0, By_0, Bz_0, gam_hcr);
+                initGhostElemUs[elem.ind-innerElemCount] = state_from_primitive_vars2D(rho0, u_0, v_0, w_0, p0, Bx_0, By_0, Bz_0, gam_hcr);
             }
         }
         NeighbourService ns = geometryWorld.getNeighbourService();
@@ -253,7 +288,7 @@ void MHDSolver2D::setInitElemUs() {
             else{
                 initGhostBNs[edge.ind - innerEdgeCount] = Bn;
             }
-            initEdgeUs[edge.ind] = state_from_primitive_vars(rho0, u_0, v_0, w_0, p0, Bx_0, By_0, Bz_0, gam_hcr);
+            initEdgeUs[edge.ind] = state_from_primitive_vars2D(rho0, u_0, v_0, w_0, p0, Bx_0, By_0, Bz_0, gam_hcr);
         }
     }
     else if(task_type == 3){

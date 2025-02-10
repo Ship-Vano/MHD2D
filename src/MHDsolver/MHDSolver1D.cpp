@@ -129,7 +129,7 @@ double cfast(const std::vector<double>& U, const double& gam_hcr) {
         std::cin.get();
     }*/
 
-    double cfast = std::sqrt((gam_hcr * p + BB + std::sqrt((gam_hcr * p + BB) * (gam_hcr * p + BB) - 4 * gam_hcr * p * Bx * Bx)) / (2 * rho));
+    double cfast = std::sqrt((gam_hcr * p + BB + std::sqrt((gam_hcr * p + BB) * (gam_hcr * p + BB) - 4.0 * gam_hcr * p * Bx * Bx)) / (2 * rho));
 
     if (cfast > 1e10 || std::isnan(cfast)) {
         std::cerr << "Unrealistic cfast detected: " << cfast
