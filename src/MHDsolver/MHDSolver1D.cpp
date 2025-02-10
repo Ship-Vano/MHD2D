@@ -26,7 +26,7 @@ double pressure(const std::vector<double> &U, const double &gam_hcr){
 
 // Энергия
 double energy(const double &gam_hcr, const double &p, const double &rho, const double &u, const double &v, const double &w, const double &Bx, const double &By, const double &Bz){
-    return p/(gam_hcr-1) + 0.5*rho*(u * u + v * v + w * w) + 0.5 * (Bx * Bx + By * By + Bz * Bz);
+    return p/(gam_hcr-1.0) + 0.5*rho*(u * u + v * v + w * w) + 0.5 * (Bx * Bx + By * By + Bz * Bz);
 }
 
 // Суммарное давление
@@ -78,13 +78,13 @@ std::vector<double> MHD_flux(const std::vector<double>& U, const double &gam_hcr
     double p = pressure(gam_hcr, e, rho, u, v, w, Bx, By, Bz);
     double pT = ptotal(p, Bx, By, Bz);
 
-    std::vector<double> F(8, 0);
+    std::vector<double> F(8, 0.0);
     F[0] = rho * u;
     F[1] = rho * u * u + pT - Bx * Bx /*/(4*PI)*/;
     F[2] = rho * v * u - Bx * By /*/ (4 * PI)*/;
     F[3] = rho * w * u - Bx * Bz /*/ (4 * PI)*/;
     F[4] = (e + pT) * u - Bx * (u * Bx + v * By + w * Bz) /*/ (4 * PI)*/;
-    F[5] = 0;
+    F[5] = 0.0;
     F[6] = By * u - Bx * v;
     F[7] = Bz * u - Bx * w;
 
@@ -100,7 +100,7 @@ std::vector<double> MHD_flux(const double &rho, const double &u, const double &v
     F[2] = rho * v * u - Bx * By /*/ (4 * PI)*/;
     F[3] = rho * w * u - Bx * Bz /*/ (4 * PI)*/;
     F[4] = (e + pT) * u - Bx * (u * Bx + v * By + w * Bz) /*/ (4 * PI)*/;
-    F[5] = 0;
+    F[5] = 0.0;
     F[6] = By * u - Bx * v;
     F[7] = Bz * u - Bx * w;
 
@@ -173,10 +173,10 @@ std::vector<double> HLL_flux(const std::vector<double>& U_L, const std::vector<d
     // Скорость правого сигнала, рассчитываемая как максимальное значение скорости правого состояния (uR) и быстрой магнитозвуковой скорости (cfR).ы
     double SR = std::max(u_L + cf_L, u_R + cf_R);
 
-    if (SL > 0) {
+    if (SL > 0.0) {
         return MHD_flux(U_L, gam_hcr);
     }
-    else if (SL <= 0 && SR >= 0) {
+    else if (SL <= 0.0 && SR >= 0) {
         return 1 / (SR - SL) * (SR * MHD_flux(U_L, gam_hcr) - SL * MHD_flux(U_R, gam_hcr) + SL * SR * (U_R - U_L));
     }
         //if (SR < 0)

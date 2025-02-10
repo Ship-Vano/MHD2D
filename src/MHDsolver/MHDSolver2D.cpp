@@ -416,31 +416,6 @@ void MHDSolver2D::runSolver() {
             writeVTU("OutputData/tmpres_" + std::to_string(iterations) + ".vtu", ghostOutput);
         }
 
-
-        // г.у (фикт ячейки) поставить перед выч-м потоков
-        if(periodicBoundaries){
-            // периодическое г.у.
-            for(const auto& [top, bot]: ns.boundaryElemTopToBottom){
-                int ghostIndTop = ns.boundaryToGhostElements[top] - innerElemCount;
-                int ghostIndBot = ns.boundaryToGhostElements[bot] - innerElemCount;
-                ghostElemUs[ghostIndTop] =  elemUs_prev[bot];
-                ghostElemUs[ghostIndBot] = elemUs_prev[top];
-            }
-            for(const auto& [left, right]: ns.boundaryElemLeftToRight){
-                int ghostIndLeft = ns.boundaryToGhostElements[left] - innerElemCount;
-                int ghostIndRight = ns.boundaryToGhostElements[right] - innerElemCount;
-                ghostElemUs[ghostIndLeft] =  elemUs_prev[right];
-                ghostElemUs[ghostIndRight] = elemUs_prev[left];
-            }
-        }
-        else{
-             // копируем значения в соответствующие фантомные ячейки (условие free flow)
-            for(const auto& [boundary, ghost] : ns.boundaryToGhostElements){
-                int ghostInd = ghost - innerElemCount;
-                ghostElemUs[ghostInd] = elemUs_prev[boundary];
-            }
-        }
-
         // вычисляем потоки, проходящие через каждое ребро
         // инициализируем вектор потоков через рёбра // MHD (HLLD) fluxes (from one element to another "<| -> |>")
         std::vector<std::vector<double>> fluxes(edgePool.edges.size(), std::vector<double>(8, 0.0));
@@ -448,7 +423,7 @@ void MHDSolver2D::runSolver() {
 //#pragma parallel for
         for (const auto &edge: edgePool.edges) {
             Element neighbour1 = elPool.elements[edge.neighbourInd1];
-            if(neighbour1.is_boundary){
+            if(neighbour1.is_boundary && edge.neighbourInd2 == -1){
                 std::vector<double> U1 = rotateStateFromAxisToNormal(elemUs_prev[neighbour1.ind], edge.normalVector);
                 int ghostInd = ns.boundaryToGhostElements[neighbour1.ind] - innerElemCount;
                 std::vector<double> U2 = rotateStateFromAxisToNormal(ghostElemUs[ghostInd], edge.normalVector);
@@ -456,10 +431,7 @@ void MHDSolver2D::runSolver() {
                 unrotated_fluxes[edge.ind] = fluxes[edge.ind];
                 fluxes[edge.ind] = rotateStateFromNormalToAxisX(fluxes[edge.ind], edge.normalVector);
             }
-            else if(neighbour1.is_ghost){
-                if(edge.neighbourInd2 != -1){
-                    std::cout << "NOT A GHOST ELEMENT!!!" << std::endl;
-                }
+            else if(neighbour1.is_ghost && edge.neighbourInd2 == -1){
                 //continue; //TODO
                 std::vector<double> U1 = rotateStateFromAxisToNormal(ghostElemUs[neighbour1.ind - innerElemCount], edge.normalVector);
                 fluxes[edge.ind] = HLLD_flux(U1, U1, gam_hcr);
@@ -543,12 +515,12 @@ void MHDSolver2D::runSolver() {
                 double u = edgeUs[neighbourEdgeInd][1]/edgeUs[neighbourEdgeInd][0];
                 double v = edgeUs[neighbourEdgeInd][2]/edgeUs[neighbourEdgeInd][0];
                 if(neighbourEdge.nodeInd1 == node.ind){
-                    inflowOrientation = sgn((u*(node1.x - node2.x) + v*(node1.y - node2.y)));
+                    //inflowOrientation = sgn((u*(node1.x - node2.x) + v*(node1.y - node2.y)));
                     //std::cout << "scalar mult = " << (u*(node1.x - node2.x) + v*(node1.y - node2.y)) <<" , orient = " << inflowOrientation <<std::endl;
                     //std::cin.get();
                 }
                 else if(neighbourEdge.nodeInd2 == node.ind){
-                    inflowOrientation =  sgn((u*(node2.x - node1.x) + v*(node2.y - node1.y)));
+                    //inflowOrientation =  sgn((u*(node2.x - node1.x) + v*(node2.y - node1.y)));
                     //std::cout << "scalar mult = " <<  (u*(node2.x - node1.x) + v*(node2.y - node1.y))  <<" , orient = " << inflowOrientation <<std::endl;
                     //std::cin.get();
                 }
@@ -571,27 +543,27 @@ void MHDSolver2D::runSolver() {
         }
 
 
-        if(periodicBoundaries){
-            for(const auto& [top, bot]: ns.boundaryElemTopToBottom){
-                int ghostIndTop = ns.boundaryToGhostElements[top] - innerElemCount;
-                int ghostIndBot = ns.boundaryToGhostElements[bot] - innerElemCount;
-                ghostBNs[ghostIndTop] = bNs[ghostIndBot];
-                ghostBNs[ghostIndBot] = bNs[ghostIndTop];
-            }
-            for(const auto& [left, right]: ns.boundaryElemLeftToRight){
-                int ghostIndLeft = ns.boundaryToGhostElements[left] - innerElemCount;
-                int ghostIndRight = ns.boundaryToGhostElements[right] - innerElemCount;
-                ghostBNs[ghostIndLeft] =  bNs[ghostIndRight];
-                ghostBNs[ghostIndRight] = bNs[ghostIndLeft];
-            }
-        }
-        else{
-    // копируем значения в соответствующие фантомные ячейки (условие free flow)
-            for(const auto& [boundary, ghost] : ns.boundaryToGhostElements){
-                int ghostInd = ghost - innerElemCount;
-                ghostBNs[ghostInd] = bNs[boundary];
-            }
-        }
+//        if(periodicBoundaries){
+//            for(const auto& [top, bot]: ns.boundaryElemTopToBottom){
+//                int ghostIndTop = ns.boundaryToGhostElements[top] - innerElemCount;
+//                int ghostIndBot = ns.boundaryToGhostElements[bot] - innerElemCount;
+//                ghostBNs[ghostIndTop] = bNs[ghostIndBot];
+//                ghostBNs[ghostIndBot] = bNs[ghostIndTop];
+//            }
+//            for(const auto& [left, right]: ns.boundaryElemLeftToRight){
+//                int ghostIndLeft = ns.boundaryToGhostElements[left] - innerElemCount;
+//                int ghostIndRight = ns.boundaryToGhostElements[right] - innerElemCount;
+//                ghostBNs[ghostIndLeft] =  bNs[ghostIndRight];
+//                ghostBNs[ghostIndRight] = bNs[ghostIndLeft];
+//            }
+//        }
+//        else{
+//    // копируем значения в соответствующие фантомные ячейки (условие free flow)
+//            for(const auto& [boundary, ghost] : ns.boundaryToGhostElements){
+//                int ghostInd = ghost - innerElemCount;
+//                ghostBNs[ghostInd] = bNs[boundary];
+//            }
+//        }
 
         //сносим Bn в центр элемента
 //#pragma omp parallel for
@@ -653,6 +625,30 @@ void MHDSolver2D::runSolver() {
             else{
                // ghostElemUs_prev[elem.ind - innerElemCount][5] = temp_sum_Bx;
                // ghostElemUs_prev[elem.ind - innerElemCount][6] = temp_sum_By;
+            }
+        }
+
+        // г.у (фикт ячейки) поставить перед выч-м потоков
+        if(periodicBoundaries){
+            // периодическое г.у.
+            for(const auto& [top, bot]: ns.boundaryElemTopToBottom){
+                int ghostIndTop = ns.boundaryToGhostElements[top] - innerElemCount;
+                int ghostIndBot = ns.boundaryToGhostElements[bot] - innerElemCount;
+                ghostElemUs[ghostIndTop] =  elemUs[bot];
+                ghostElemUs[ghostIndBot] = elemUs[top];
+            }
+            for(const auto& [left, right]: ns.boundaryElemLeftToRight){
+                int ghostIndLeft = ns.boundaryToGhostElements[left] - innerElemCount;
+                int ghostIndRight = ns.boundaryToGhostElements[right] - innerElemCount;
+                ghostElemUs[ghostIndLeft] =  elemUs[right];
+                ghostElemUs[ghostIndRight] = elemUs[left];
+            }
+        }
+        else{
+            // копируем значения в соответствующие фантомные ячейки (условие free flow)
+            for(const auto& [boundary, ghost] : ns.boundaryToGhostElements){
+                int ghostInd = ghost - innerElemCount;
+                ghostElemUs[ghostInd] = elemUs[boundary];
             }
         }
 
