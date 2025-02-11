@@ -167,7 +167,8 @@ public:
     NeighbourService& getNeighbourService();
     void exportToFile(const std::string& filename) const; // экспорт в бинарный файл
     void importFromFile(const std::string& filename); // импорт из файла узлов и элементов
-    bool isCounterClockwise(const std::vector<int> &nodeIndices);
+    bool isCounterClockwise(const std::vector<Node> &nodes);
+    bool isCounterClockwise(const std::vector<int> &nodeIndices, const NodePool& np);
 };
 
 double areaCalc(const Element& poly, const NodePool& nPool); // подсчёт площади элемента

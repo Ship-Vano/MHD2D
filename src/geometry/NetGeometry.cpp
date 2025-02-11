@@ -651,9 +651,16 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
                         reflNode.is_ghost = true;
 
                         // строим элемент
+                        bool isNotCounter = false;
                         std::vector<int> ghostElNodes{node2nd.ind, node1st.ind, ghostNodeInd};
-                        if(!isCounterClockwise(ghostElNodes)){
+                        std::vector<Node> ghostElNodesnodes{node2nd, node1st, reflNode};
+                        if(!isCounterClockwise(ghostElNodesnodes)){
                             std::swap(ghostElNodes[0], ghostElNodes[1]);
+                            std::swap(ghostElNodesnodes[0], ghostElNodesnodes[1]);
+                            isNotCounter = true;
+                            if(!isCounterClockwise(ghostElNodesnodes)){
+                                std::cout << "Again!" << std::endl;
+                            }
                         }
                         Element ghostEl(ghostElemInd, ghostElNodes, 3);
                         ghostEl.is_ghost = true;
@@ -678,8 +685,11 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
 
                         ghostEdge2.is_ghost = true;
                         ghostEl.edgeIndexes = std::vector<int>{edge.ind, ghostEdgeInd, ghostEdgeInd + 1};
+                        if(isNotCounter){
+                            ghostEl.edgeIndexes = std::vector<int>{edge.ind, ghostEdgeInd + 1, ghostEdgeInd};
+                        }
                         ghostEl.area = elem.area;
-                        ghostEl.centroid2D = getElementCentroid2D({node2nd, node1st, reflNode});
+                        ghostEl.centroid2D = getElementCentroid2D(ghostElNodesnodes);
 
                         // neighbour service connection
                         ns.boundaryToGhostElements[elem.ind] = ghostEl.ind;
@@ -721,6 +731,70 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
                 ns.nodeToEdgesMap[edge.nodeInd2].push_back(edgeIndex);
             }
         }
+
+        for(auto& edge: edgp.edges){
+            Element neig1 = ep.elements[edge.neighbourInd1];
+            std::vector<double> cToe = edge.midPoint - neig1.centroid2D;
+            double orient =cToe * edge.normalVector;
+            if(std::abs(orient) < 1e-15){
+                std::cerr << "BAD SCALAR MULT OF VECTORS IN NORMAL CHECK!!!" << std::endl;
+            }
+            if(sgn(orient) < 0.0){
+                //std::cerr << "BAD ORIENTATION!!!" << std::endl;
+                if(edge.neighbourInd2 != -1){
+                    std::cerr << "BAD ORIENTATION!!!" << std::endl;
+                    std::swap(edge.neighbourInd1, edge.neighbourInd2);
+                }
+                else{
+                    //std::cout << "Elem nodes = " << neig1.nodeIndexes[0] << " , "<< neig1.nodeIndexes[1] << " , "<< neig1.nodeIndexes[2] << " ; Edge nodes = " << edge.nodeInd1 << " , "<< edge.nodeInd2 << std::endl;
+                    edge.normalVector = (-1.0) * edge.normalVector;
+                }
+            }
+        }
+
+        for(auto& elem: ep.elements){
+            std::vector<int> nodeIndexes = elem.nodeIndexes;
+            if(!isCounterClockwise(nodeIndexes, np)){
+                std::cerr << "IS NOT COUNTERCLOCK!!!" << std::endl;
+            }
+            Edge edge1 = edgp.edges[elem.edgeIndexes[0]];
+            Edge edge2 = edgp.edges[elem.edgeIndexes[1]];
+            Edge edge3 = edgp.edges[elem.edgeIndexes[2]];
+
+            std::vector<int> nodeInEdges(6, 0);
+            int cnt = 0;
+            for(auto& edgeIndex: elem.edgeIndexes){
+                Edge edge = edgp.edges[edgeIndex];
+                std::vector<double> cToe = edge.midPoint - elem.centroid2D;
+                double orient = cToe * edge.normalVector;
+                if(std::abs(orient) < 1e-15){
+                    std::cerr << "BAD SCALAR MULT OF VECTORS IN NORMAL CHECK!!!" << std::endl;
+                }
+                if(sgn(orient) < 0.0) {
+                    nodeInEdges[cnt++] = edge.nodeInd2;
+                    nodeInEdges[cnt++] = edge.nodeInd1;
+                }else{
+                    nodeInEdges[cnt++] = edge.nodeInd1;
+                    nodeInEdges[cnt++] = edge.nodeInd2;
+                }
+            }
+            //std::cout << elem.nodeIndexes[0]<<", " << elem.nodeIndexes[1] <<", " << elem.nodeIndexes[2] << " v/s "<< nodeInEdges[0]<<", " << nodeInEdges[1]<<", " << nodeInEdges[2]<<", " << nodeInEdges[3]<<", " << nodeInEdges[4]<<", " << nodeInEdges[5]<<", " << std::endl;
+            if(elem.nodeIndexes[0] != nodeInEdges[0] && elem.nodeIndexes[1] != nodeInEdges[1]){
+                std::cerr <<"BAD!!!" <<std::endl;
+            }
+            if(elem.nodeIndexes[1] != nodeInEdges[2] && elem.nodeIndexes[2] != nodeInEdges[3]){
+                std::cerr <<"BAD!!!" <<std::endl;
+            }
+            if(elem.nodeIndexes[2] != nodeInEdges[4] && elem.nodeIndexes[0] != nodeInEdges[5]){
+                std::cerr <<"BAD!!!" <<std::endl;
+            }
+            if(nodeInEdges[1] != nodeInEdges[2] || nodeInEdges[3] != nodeInEdges[4] || \
+               nodeInEdges[5] != nodeInEdges[0]){
+                std::cerr << "Bad!" << std::endl;
+            }
+        }
+
+
     } /*end: 2d variant constructor*/
 }
 
@@ -1209,12 +1283,25 @@ std::vector<double> reflectNodeOverVector(const Node& nodeToReflect, const Node&
 
 }
 
-bool World::isCounterClockwise(const std::vector<int> &nodeIndices) {
-    double sum = 0;
-    for (size_t i = 0; i < nodeIndices.size(); ++i) {
-        Node n1 = np.getNode(nodeIndices[i]);
-        Node n2 = np.getNode(nodeIndices[(i + 1) % nodeIndices.size()]);
-        sum += (n2.x - n1.x) * (n2.y + n1.y);
+bool World::isCounterClockwise(const std::vector<Node> &nodes) {
+    double sum = 0.0;
+    if(nodes.size() == 3){
+        sum = (nodes[1].x * nodes[2].y - nodes[2].x * nodes[1].y) - (nodes[0].x * nodes[2].y - nodes[0].y * nodes[2].x) + (nodes[0].x*nodes[1].y - nodes[1].x*nodes[0].y);
+    }else{
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            Node n1 = nodes[i];
+            Node n2 = nodes[(i + 1) % nodes.size()];
+            sum += (n2.x - n1.x) * (n2.y + n1.y);
+        }
     }
-    return sum > 0; // CCW if sum > 0
+    return sgn(sum) > 0.0; // CCW if sum > 0
+}
+
+bool World::isCounterClockwise(const std::vector<int> &nodeIndices, const NodePool& np) {
+    int size = nodeIndices.size();
+    std::vector<Node> nodes(size, Node());
+    for(int i = 0; i < size; ++i){
+        nodes[i] = np.getNode(nodeIndices[i]);
+    }
+    return isCounterClockwise(nodes);
 }
