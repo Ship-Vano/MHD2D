@@ -494,8 +494,18 @@ void MHDSolver2D::runSolver() {
             }
             for (int edgeIndex: elem.edgeIndexes) {
                 Edge edge_j = edgePool.edges[edgeIndex];
-                if(std::abs(edge_j.length) < 1e-15){
-                    std::cout << "BAD EDGE LENGTH = 0!!" << std::endl;
+                if(std::abs(edge_j.length) < 1e-16){
+                    std::cout << "BAD EDGE LENGTH = 0!! " << edge_j.length << std::endl;
+                    Node node1 = nodePool.getNode(edge_j.nodeInd1);
+                    Node node2 = nodePool.getNode(edge_j.nodeInd2);
+                    std::cout << "edge: " << edge_j.ind << std::endl;
+                    std::cout << "node1 # "<< edge_j.nodeInd1 << " { " << node1.x << ", " << node1.y << " } \n";
+                    std::cout << "node2 # "<< edge_j.nodeInd2 << " { " << node2.x << ", " << node2.y << " } \n";
+                    Element elem1 = elPool.elements[edge_j.neighbourInd1];
+                    std::cout << "neigel1 # " << elem1.ind << " isBoundary = " << elem1.is_boundary << " , isGhost = " << elem1.is_ghost << std::endl;
+                    std::cout << "neigel2 # " << edge_j.neighbourInd2 << std::endl;
+                    std::cin.get();
+
                 }
                 if (edge_j.neighbourInd1 == i) {
                     fluxSum = fluxSum + edge_j.length * fluxes[edgeIndex];

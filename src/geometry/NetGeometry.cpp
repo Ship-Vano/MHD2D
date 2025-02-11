@@ -88,10 +88,20 @@ std::vector<double> getMidPoint2D(const int nodeInd1, const int nodeInd2, const 
     return mid;
 }
 
+std::vector<double> getMidPoint2D(const Node node1, const Node node2) {
+    std::vector<double> mid{(node1.x + node2.x)/2.0, (node1.y + node2.y)/2.0};
+    return mid;
+}
+
+
 // расстояние между узлами
 double getDistance(const int nodeInd1, const int nodeInd2, const NodePool& nPool){
     Node node1 = nPool.getNode(nodeInd1);
     Node node2 = nPool.getNode(nodeInd2);
+    return std::sqrt( (node1.x - node2.x)*(node1.x - node2.x) + (node1.y - node2.y)*(node1.y - node2.y) + (node1.z - node2.z)*(node1.z - node2.z) );
+}
+
+double getDistance(const Node node1, const Node node2){
     return std::sqrt( (node1.x - node2.x)*(node1.x - node2.x) + (node1.y - node2.y)*(node1.y - node2.y) + (node1.z - node2.z)*(node1.z - node2.z) );
 }
 
@@ -650,18 +660,18 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
 
                         // строим рёбра
                         Edge ghostEdge1(ghostEdgeInd, edge.nodeInd1, ghostNodeInd, ghostElemInd, -1,
-                                        getDistance(edge.nodeInd1, ghostNodeInd, np),
+                                        getDistance(node1st, reflNode),
                                         calculateNormalVector2D(node1st, reflNode),
-                                        getMidPoint2D(edge.nodeInd1, ghostNodeInd, np));
+                                        getMidPoint2D(node1st, reflNode));
                         if(std::abs(1.0-std::sqrt(ghostEdge1.normalVector[0]*ghostEdge1.normalVector[0] + ghostEdge1.normalVector[1]*ghostEdge1.normalVector[1])) > 1e-15){
                             std::cout << "bad normal while creating a ghost edge! normal = { " << ghostEdge1.normalVector[0] << " , " << ghostEdge1.normalVector[1] << " }"<<std::endl;
                         }
 
                         ghostEdge1.is_ghost = true;
                         Edge ghostEdge2(ghostEdgeInd + 1, ghostNodeInd, edge.nodeInd2, ghostElemInd, -1,
-                                        getDistance(ghostNodeInd, edge.nodeInd2, np),
+                                        getDistance(reflNode, node2nd),
                                         calculateNormalVector2D(reflNode, node2nd),
-                                        getMidPoint2D(ghostNodeInd, edge.nodeInd2, np));
+                                        getMidPoint2D(reflNode, node2nd));
                         if(std::abs(1.0-std::sqrt(ghostEdge2.normalVector[0]*ghostEdge2.normalVector[0] + ghostEdge2.normalVector[1]*ghostEdge2.normalVector[1])) > 1e-15){
                             std::cout << "bad normal while creating a ghost edge!" <<std::endl;
                         }
