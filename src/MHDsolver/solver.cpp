@@ -18,7 +18,8 @@ int main(){
 
     std::string importFileName = json_root.get("importFileName", "").asString();
     std::cout << "Generating the world from " << importFileName << " file by reading it..." << std::endl;
-    World world(importFileName, true);
+    //World world(importFileName, true);
+    World world("InputData/mesh.txt", false);
     std::cout << "MINlen = "<< world.getEdgePool().minEdgeLen << std::endl;
     int taskType = json_root.get("taskType", 1).asInt();
     double finalTime = json_root.get("finalTime", 0.1).asDouble();
