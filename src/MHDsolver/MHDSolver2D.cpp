@@ -8,6 +8,9 @@ double gas_energy(const double& gam_hcr, const double& gas_p, const double& rho,
     return gas_p / (gam_hcr - 1.0) + rho * (u * u + v * v + w * w) / 2.0;
 }
 
+double gas_p(const double& gam_hcr, const double& e, const double& rho, const double& u, const double& v, const double& w, const double &Bx, const double &By, const double &Bz){
+    return (gam_hcr - 1.0) * (e -  0.5*(Bx * Bx + By * By + Bz * Bz) - (rho/2.0) * (u*u + v*v + w*w));
+}
 
 // Вектор состояния из параметров
 std::vector<double>
@@ -425,6 +428,52 @@ void MHDSolver2D::setInitElemUs() {
             }
         }
     }
+    else if(task_type == 5){
+        std::cout << "SOLVING TASKTYPE 5" << std::endl;
+        double rho = 25.0 / (36.0 * M_PI);
+        double p = 5.0 / (12.0 * M_PI);
+        gam_hcr = 5.0/3.0;
+        finalTime = 0.5;
+        cflNum = 0.5;
+        periodicBoundaries = true;
+        initElemUs.resize(innerElemCount, std::vector<double>(8, 0.0));
+        initEdgeUs.resize(edgp.edgeCount, std::vector<double>(8, 0.0));
+        initBns.resize(innerEdgeCount, 0.0);
+        initGhostElemUs.resize(geometryWorld.ghostElemCount, std::vector<double>(8, 0.0));
+        for (int i = 0; i < innerElemCount; ++i) {
+            Element elem = ep.elements[i];
+            std::vector<double> centroid = elem.centroid2D;
+            double x = centroid[0];
+            double y = centroid[1];
+            double u = (-1) * std::sin(2.0 * M_PI * y) ;
+            double v = std::sin(2.0 * M_PI * x);
+            double w = 0.0;
+            double Bx = (-1) * std::sin(2.0 * M_PI  * y)/ (std::sqrt(4.0 * M_PI));
+            double By = std::sin(4.0 * M_PI * x)/ (std::sqrt(4.0 * M_PI));
+            double Bz = 0.0;
+            initElemUs[elem.ind] = state_from_primitive_vars2D(rho, u, v, w, p, Bx, By, Bz, gam_hcr);
+        }
+        NeighbourService ns = geometryWorld.getNeighbourService();
+        for(const auto& [boundary, ghost]: ns.boundaryToGhostElements){
+            int ghostInd = ghost - innerElemCount;
+            initGhostElemUs[ghostInd] =  initElemUs[boundary];
+        }
+        initGhostBNs.resize(geometryWorld.ghostElemCount*2, 0.0);
+        for(int i = 0; i < edgp.edgeCount; ++i){
+            Edge edge = edgp.edges[i];
+            double x = edge.midPoint[0];
+            double y = edge.midPoint[1];
+            double Bx = (-1) * std::sin(2.0 * M_PI  * y)/ (std::sqrt(4.0 * M_PI));
+            double By = std::sin(4.0 * M_PI * x)/ (std::sqrt(4.0 * M_PI));
+            double Bn = Bx * edge.normalVector[0] +  By * edge.normalVector[1];
+            if(i < innerEdgeCount) {
+                initBns[edge.ind] = Bn;
+            }
+            else{
+                initGhostBNs[edge.ind - innerEdgeCount] = Bn;
+            }
+        }
+    }
 }
 
 void MHDSolver2D::runSolver() {
@@ -571,11 +620,30 @@ void MHDSolver2D::runSolver() {
             }
         }
 
-        // копируем значения в соответствующие фантомные ячейки (условие free flow)
-//        for(const auto& [boundary, ghost] : ns.boundaryToGhostElements){
-//            int ghostInd = ghost - innerElemCount;
-//            ghostElemUs[ghostInd] = elemUs[boundary];
-//        }
+
+        // г.у (фикт ячейки) поставить перед выч-м потоков
+        if(periodicBoundaries){
+            // периодическое г.у.
+            for(const auto& [top, bot]: ns.boundaryElemTopToBottom){
+                int ghostIndTop = ns.boundaryToGhostElements[top] - innerElemCount;
+                int ghostIndBot = ns.boundaryToGhostElements[bot] - innerElemCount;
+                ghostElemUs[ghostIndTop] =  elemUs[bot];
+                ghostElemUs[ghostIndBot] = elemUs[top];
+            }
+            for(const auto& [left, right]: ns.boundaryElemLeftToRight){
+                int ghostIndLeft = ns.boundaryToGhostElements[left] - innerElemCount;
+                int ghostIndRight = ns.boundaryToGhostElements[right] - innerElemCount;
+                ghostElemUs[ghostIndLeft] =  elemUs[right];
+                ghostElemUs[ghostIndRight] = elemUs[left];
+            }
+        }
+        else{
+            // копируем значения в соответствующие фантомные ячейки (условие free flow)
+            for(const auto& [boundary, ghost] : ns.boundaryToGhostElements){
+                int ghostInd = ghost - innerElemCount;
+                ghostElemUs[ghostInd] = elemUs[boundary];
+            }
+        }
 
         for(auto& edge: edgePool.edges){
             Element neighbour1 = elPool.elements[edge.neighbourInd1];
@@ -640,29 +708,6 @@ void MHDSolver2D::runSolver() {
             bNs[edge.ind] = bNs_prev[edge.ind] + (tau / edge.length) * (nodeMagDiffs[edge.nodeInd2] -
                                                         nodeMagDiffs[edge.nodeInd1]);
         }
-
-
-//        if(periodicBoundaries){
-//            for(const auto& [top, bot]: ns.boundaryElemTopToBottom){
-//                int ghostIndTop = ns.boundaryToGhostElements[top] - innerElemCount;
-//                int ghostIndBot = ns.boundaryToGhostElements[bot] - innerElemCount;
-//                ghostBNs[ghostIndTop] = bNs[ghostIndBot];
-//                ghostBNs[ghostIndBot] = bNs[ghostIndTop];
-//            }
-//            for(const auto& [left, right]: ns.boundaryElemLeftToRight){
-//                int ghostIndLeft = ns.boundaryToGhostElements[left] - innerElemCount;
-//                int ghostIndRight = ns.boundaryToGhostElements[right] - innerElemCount;
-//                ghostBNs[ghostIndLeft] =  bNs[ghostIndRight];
-//                ghostBNs[ghostIndRight] = bNs[ghostIndLeft];
-//            }
-//        }
-//        else{
-//     //копируем значения в соответствующие фантомные ячейки (условие free flow)
-//            for(const auto& [boundary, ghost] : ns.boundaryToGhostElements){
-//                int ghostInd = ghost - innerElemCount;
-//                ghostBNs[ghostInd] = bNs[boundary];
-//            }
-//        }
 
         //сносим Bn в центр элемента
 //#pragma omp parallel for
@@ -835,11 +880,12 @@ void MHDSolver2D::writeVTU(const std::string& filename, const bool& ghost) {
 
     // Write solution data (elemUs) - Fix NumberOfComponents to 8
     file << "      <CellData Scalars=\"elemUs\">\n";
-    file << "        <DataArray type=\"Float64\" NumberOfComponents=\"8\" Name=\"elemUs\" format=\"ascii\">\n";
+    file << "        <DataArray type=\"Float64\" NumberOfComponents=\"9\" Name=\"elemUs\" format=\"ascii\">\n";
     for (const auto& U : elemUs) {
         for (const auto& value : U) {
             file << "          " << value << " ";
         }
+        file << "          " << gas_p(gam_hcr, U[4], U[0], U[1]/U[0], U[2]/U[0], U[3]/U[0], U[5], U[6], U[7]) << " ";
         file << "\n";
     }
     if (ghost) {
@@ -847,6 +893,7 @@ void MHDSolver2D::writeVTU(const std::string& filename, const bool& ghost) {
             for (const auto& value : U) {
                 file << "          " << value << " ";
             }
+            file << "          " << gas_p(gam_hcr, U[4], U[0], U[1]/U[0], U[2]/U[0], U[3]/U[0], U[5], U[6], U[7]) << " ";
             file << "\n";
         }
     }
