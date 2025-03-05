@@ -52,6 +52,7 @@ public:
     void setInitElemUs();
     void runSolver();
 
+    double computeDivergence();
     // Начальное состояние системы
     std::function<std::vector<double>(double)> initStateFunc;
     bool initStateFunc_is_set = false;
@@ -71,7 +72,7 @@ public:
 //void writeVTU(const std::string& filename, const World& geometryWorld, const std::vector<std::vector<double>>& elemUs);
 
 double computeDivergence(const std::vector<std::vector<double>>& elemUs, const EdgePool& edgePool);
-
+std::vector<int> findCommonElements(const std::vector<int>& v1, const std::vector<int>& v2);
 /*                       0      1      2      3    4   5   6   7
  * U (general state):  rho,  rho*u, rho*v, rho*w,  e,  Bx, Bz, By
  * gasU                rho,  rho*u, rho*v, rho*w,  e
