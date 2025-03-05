@@ -673,8 +673,21 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
                         if(std::abs(1.0-std::sqrt(ghostEdge1.normalVector[0]*ghostEdge1.normalVector[0] + ghostEdge1.normalVector[1]*ghostEdge1.normalVector[1])) > 1e-15){
                             std::cout << "bad normal while creating a ghost edge! normal = { " << ghostEdge1.normalVector[0] << " , " << ghostEdge1.normalVector[1] << " }"<<std::endl;
                         }
-
                         ghostEdge1.is_ghost = true;
+
+                        int tmp =0;
+                        for(const auto elEdgeInd: elem.edgeIndexes){
+                            Edge elEdge = edgp.edges[elEdgeInd];
+                            if((elEdge.nodeInd1 == edge.nodeInd1 && elEdge.nodeInd2 == node_before_ind) \
+                             || (elEdge.nodeInd2 == edge.nodeInd1 && elEdge.nodeInd1 == node_before_ind)){
+                                ns.edgeToGhostEdges[ghostEdgeInd] =  elEdgeInd;
+                                ++tmp;
+                            }
+                        }
+                        if(tmp != 1){
+                            std::cout << "NO MATHES IN EDGE TO GHOST((" << std::endl;
+                        }
+
                         Edge ghostEdge2(ghostEdgeInd + 1, ghostNodeInd, edge.nodeInd2, ghostElemInd, -1,
                                         getDistance(reflNode, node2nd),
                                         calculateNormalVector2D(reflNode, node2nd),
@@ -682,8 +695,21 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
                         if(std::abs(1.0-std::sqrt(ghostEdge2.normalVector[0]*ghostEdge2.normalVector[0] + ghostEdge2.normalVector[1]*ghostEdge2.normalVector[1])) > 1e-15){
                             std::cout << "bad normal while creating a ghost edge!" <<std::endl;
                         }
-
                         ghostEdge2.is_ghost = true;
+
+                        tmp = 0;
+                        for(const auto elEdgeInd: elem.edgeIndexes){
+                            Edge elEdge = edgp.edges[elEdgeInd];
+                            if((elEdge.nodeInd1 == edge.nodeInd2 && elEdge.nodeInd2 == node_before_ind) \
+                             || (elEdge.nodeInd2 == edge.nodeInd2 && elEdge.nodeInd1 == node_before_ind)){
+                                ns.edgeToGhostEdges[ghostEdgeInd + 1] = elEdgeInd ;
+                                ++tmp;
+                            }
+                        }
+                        if(tmp != 1){
+                            std::cout << "NO MATHES IN EDGE TO GHOST((" << std::endl;
+                        }
+
                         ghostEl.edgeIndexes = std::vector<int>{edge.ind, ghostEdgeInd, ghostEdgeInd + 1};
                         if(isNotCounter){
                             ghostEl.edgeIndexes = std::vector<int>{edge.ind, ghostEdgeInd + 1, ghostEdgeInd};
@@ -718,6 +744,7 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
         edgp.edges.insert(edgp.edges.end(), ghostEdges.begin(), ghostEdges.end());
         edgp.edgeCount = edgp.edges.size();
 
+        std::cout << "edgeToGhostEdges_size = " << ns.edgeToGhostEdges.size() << " ; ghostedges_zise = " << ghostEdges.size()<< std::endl;
 
         // Обновлениеmap узел -> соседи-рёбра
         ns.nodeToEdgesMap.clear();
@@ -1015,6 +1042,13 @@ void World::exportToFile(const string &filename) const{
         file.write(reinterpret_cast<const char*>(&ghost), sizeof(ghost));
     }
 
+    int edgeToGhostEdges_size = ns.edgeToGhostEdges.size();
+    file.write(reinterpret_cast<const char*>(&edgeToGhostEdges_size), sizeof(edgeToGhostEdges_size));
+    for (const auto& [edge, ghost] : ns.edgeToGhostEdges) {
+        file.write(reinterpret_cast<const char*>(&edge), sizeof(edge));
+        file.write(reinterpret_cast<const char*>(&ghost), sizeof(ghost));
+    }
+
     // Count of ghost elems and nodes (X_x)
     file.write(reinterpret_cast<const char*>(&ghostElemCount), sizeof(ghostElemCount));
     file.write(reinterpret_cast<const char*>(&ghostNodeCount), sizeof(ghostNodeCount));
@@ -1237,6 +1271,18 @@ void World::importFromFile(const string &filename) {
         file.read(reinterpret_cast<char*>(&ghostElem), sizeof(ghostElem));
         ns.boundaryToGhostElements[boundaryElem] = ghostElem;
     }
+
+    int edgeToGhostEdges_size;
+    file.read(reinterpret_cast<char*>(&edgeToGhostEdges_size), sizeof(edgeToGhostEdges_size));
+    ns.edgeToGhostEdges.clear();
+    for(int i = 0; i < edgeToGhostEdges_size; ++i){
+        int edge;
+        int ghost;
+        file.read(reinterpret_cast<char*>(&edge), sizeof(edge));
+        file.read(reinterpret_cast<char*>(&ghost), sizeof(ghost));
+        ns.edgeToGhostEdges[edge] = ghost;
+    }
+
 
     // Count of ghost elems and nodes (X_x)
     file.read(reinterpret_cast<char*>(&ghostElemCount), sizeof(ghostElemCount));

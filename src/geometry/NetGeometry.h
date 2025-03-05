@@ -117,6 +117,7 @@ public:
     std::unordered_map<int, int> boundaryElemLeftToRight; // left boundary elements -> right boundary elements
     std::unordered_map<int, int> boundaryElemTopToBottom; // top boundary elements -> bot boundary elements
     std::unordered_map<int, int> boundaryToGhostElements; // boundary element -> ghost element
+    std::unordered_map<int, int> edgeToGhostEdges; // edges to reflected ghost edges
     NeighbourService(const NodePool& np, const ElementPool& ep, const EdgePool& edgePool);
     std::vector<int> getEdgeNeighborsOfNode(int nodeIndex) const;
     std::unordered_set<int> getNodeNeighbours(int nodeIndex) const;
