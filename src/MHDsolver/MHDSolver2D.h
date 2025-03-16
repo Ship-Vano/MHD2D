@@ -52,6 +52,9 @@ public:
     void setInitElemUs();
     void runSolver();
 
+    void setInitCylindricElemUs();
+    void runCylindricSolver();
+
     double computeDivergence();
     // Начальное состояние системы
     std::function<std::vector<double>(double)> initStateFunc;

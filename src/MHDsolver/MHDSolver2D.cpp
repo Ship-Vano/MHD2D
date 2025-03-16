@@ -594,7 +594,7 @@ void MHDSolver2D::runSolver() {
             break;
         }
 
-        elemUs_prev = elemUs;
+        elemUs_prev = elemUs; //TODO: implement swap and test it
 
         //ghostElemUs_prev.swap(ghostElemUs);
 
@@ -1113,5 +1113,81 @@ std::vector<int> findCommonElements(const std::vector<int>& v1, const std::vecto
 
     return common;
 }
+
+void MHDSolver2D::setInitCylindricElemUs() {
+    //TODO: implement initial distribution with a respect to cylindrical geometry
+}
+
+void MHDSolver2D::runCylindricSolver() {
+    // service
+    EdgePool edgePool = geometryWorld.getEdgePool();
+    ElementPool elPool = geometryWorld.getElementPool();
+    NodePool nodePool = geometryWorld.getNodePool();
+    NeighbourService ns = geometryWorld.getNeighbourService();
+
+    // инициализируем состояния
+    setInitElemUs();
+    elemUs = initElemUs;
+    edgeUs = initEdgeUs;
+    bNs = initBns;
+    ghostElemUs = initGhostElemUs;
+    ghostBNs = initGhostBNs;
+
+    // сделать старые дубликаты состояний (предыдущие состояния) чтобы в новые записывать расчёты
+    std::vector<std::vector<double>> elemUs_prev(initElemUs.size(), std::vector<double>(8, 0.0));
+    elemUs_prev = initElemUs;
+    std::vector<std::vector<double>> edgeUs_prev(initEdgeUs.size(), std::vector<double>(8, 0.0));
+    edgeUs_prev = initEdgeUs;
+    std::vector<std::vector<double>> ghostElemUs_prev(initGhostElemUs.size(), std::vector<double>(8, 0.0));
+    ghostElemUs_prev = initGhostElemUs;
+
+    // проверка на нормировку нормалей
+    for(const auto edge: edgePool.edges){
+        double norm = std::sqrt(edge.normalVector[0]*edge.normalVector[0] + edge.normalVector[1]*edge.normalVector[1]);
+        if(std::abs(1.0-norm) > 1e-15){
+            std::cout << "bad normal! |1 - norm| = " << std::abs(1.0-norm) << " edge.is_ghost = " << edge.is_ghost <<std::endl;
+        }
+    }
+
+    // дивергенция магнитного поля
+    double divergence = computeDivergence();
+    std::cout << "Init divergence = " << divergence << std::endl;
+
+    double h = edgePool.minEdgeLen;
+    std::cout << "Min h = " << h << std::endl;
+
+    double currentTime = startTime;
+    bool foundNan = false; // флаг для поиска NaN-значений
+    int iterations = 0; // число текущих итераций
+
+    // основной цикл по времени
+    while(currentTime < finalTime) {
+        if (iterations >= MAX_ITERATIONS) {
+            std::cout << "iterations limit!" << std::endl;
+            break;
+        }
+
+        elemUs_prev = elemUs; // TODO: change to swap and test it
+
+        tau = std::max(min_tau, tau_from_cfl2D(cflNum, h,  elemUs, gam_hcr));
+        currentTime += tau;
+        if (currentTime > finalTime) {
+            tau -= (currentTime - finalTime);
+            currentTime = finalTime;
+        }
+
+        if(debugDivergence){
+            divergence = computeDivergence();
+            std::cout << "Divergence = " << divergence << std::endl;
+        }
+
+        // запись в файл временного результата
+        if (iterations % iterationsPerFrame == 0) {
+            std::cout << std::setprecision(10) << "t = " << currentTime << std::endl;
+            writeVTU("OutputData/tmpres_" + std::to_string(iterations) + ".vtu", ghostOutput);
+        }
+    }
+}
+
 
 
