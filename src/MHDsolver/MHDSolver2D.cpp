@@ -541,11 +541,70 @@ void MHDSolver2D::setInitElemUs() {
             }
             initEdgeUs[edgeInd] = state;
         }
+    }else if(task_type == 7) {
+        cflNum = 0.4;
+        freeFLowBoundaries = true;
+        periodicBoundaries = false;
+        finalTime = 0.2;
+        std::cout << "SOLVING TASKTYPE 7 (SOD'S PROBLEM)" << std::endl;
+                                     /*rho   u   v    w     p    Bx   By   Bz gam_hcr*/
+        std::vector<double> BrioWu_L1{1.0, 0.0, 0.0, 0.0, 1.0,  0.0, 0.0, 0.0, gam_hcr};
+        std::vector<double> BrioWu_R1{0.125, 0.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, gam_hcr};
+
+        initElemUs.resize(innerElemCount, std::vector<double>(8, 0.0));
+        for (int i = 0; i < innerElemCount; ++i) {
+            Element elem = ep.elements[i];
+            std::vector<double> centroid = elem.centroid2D;
+            int elInd = elem.ind;
+            if (centroid[0] < 0.5) {
+                initElemUs[elInd] = state_from_primitive_vars(BrioWu_L1);
+            } else {
+                initElemUs[elInd] = state_from_primitive_vars(BrioWu_R1);
+            }
+        }
+
+        initGhostElemUs.resize(geometryWorld.ghostElemCount, std::vector<double>(8, 0.0));
+        for(int i = innerElemCount; i < ep.elCount; ++i ){
+            Element elem = ep.elements[i];
+            std::vector<double> centroid = elem.centroid2D;
+            int elInd = elem.ind;
+            int ghostInd = elInd - innerElemCount;
+            if (centroid[0] < 0.5) {
+                initGhostElemUs[ghostInd] = state_from_primitive_vars(BrioWu_L1);
+            } else {
+                initGhostElemUs[ghostInd] = state_from_primitive_vars(BrioWu_R1);
+            }
+        }
+
+        initBns.resize(edgp.edgeCount, 0.0);
+        initGhostBNs.resize(geometryWorld.ghostElemCount*2, 0.0);
+        initEdgeUs.resize(edgp.edgeCount, std::vector<double>(8, 0.0));
+        for (int i = 0; i < edgp.edgeCount; ++i) {
+            Edge edge = edgp.edges[i];
+            std::vector<double> midP = edge.midPoint;
+            int edgeInd = edge.ind;
+            std::vector<double> normal = edge.normalVector;
+            std::vector<double> state;
+            if (midP[0] < 0.5) {
+                state = state_from_primitive_vars(BrioWu_L1);
+            } else {
+                state = state_from_primitive_vars(BrioWu_R1);
+            }
+            double Bn = state[5] * normal[0] + state[6] * normal[1];
+            initBns[edgeInd] = Bn;
+            if(i < innerEdgeCount) {
+                initBns[edgeInd] = Bn;
+            }else{
+                int ghostInd = edgeInd - innerEdgeCount;
+                initGhostBNs[ghostInd] = Bn;
+            }
+            initEdgeUs[edgeInd] = state;
+        }
     }
 }
 
 void MHDSolver2D::runSolver() {
-    omp_set_num_threads(1);
+    omp_set_num_threads(4);
     // service
     EdgePool edgePool = geometryWorld.getEdgePool();
     ElementPool elPool = geometryWorld.getElementPool();
@@ -624,7 +683,7 @@ void MHDSolver2D::runSolver() {
         // инициализируем вектор потоков через рёбра // MHD (HLLD) fluxes (from one element to another "<| -> |>")
         std::vector<std::vector<double>> fluxes(edgePool.edges.size(), std::vector<double>(8, 0.0));
         std::vector<std::vector<double>> unrotated_fluxes(edgePool.edges.size(), std::vector<double>(8, 0.0));
-//#pragma parallel for
+        #pragma parallel for
         for (const auto &edge: edgePool.edges) {
             Element neighbour1 = elPool.elements[edge.neighbourInd1];
             if(neighbour1.is_boundary && edge.neighbourInd2 == -1){
@@ -1119,6 +1178,11 @@ void MHDSolver2D::setInitCylindricElemUs() {
 }
 
 void MHDSolver2D::runCylindricSolver() {
+    /**
+     * (z, r, \phi) <-> (x, y, z) (переобозначения в коде, не связь декартовых и цск)
+     * (u, v, w) <-> (v_z, v_r, v_{\phi})
+     * (Bx, By, Bz) <-> (B_z, B_r, B_{\phi})
+     */
     // service
     EdgePool edgePool = geometryWorld.getEdgePool();
     ElementPool elPool = geometryWorld.getElementPool();
@@ -1186,7 +1250,363 @@ void MHDSolver2D::runCylindricSolver() {
             std::cout << std::setprecision(10) << "t = " << currentTime << std::endl;
             writeVTU("OutputData/tmpres_" + std::to_string(iterations) + ".vtu", ghostOutput);
         }
+
+        // вычисляем потоки, проходящие через каждое ребро
+        // инициализируем вектор потоков через рёбра // MHD (HLLD) fluxes (from one element to another "<| -> |>")
+        std::vector<std::vector<double>> fluxes(edgePool.edges.size(), std::vector<double>(8, 0.0));
+        std::vector<std::vector<double>> unrotated_fluxes(edgePool.edges.size(), std::vector<double>(8, 0.0));
+        #pragma parallel for private(elPool.elements)
+        for (const auto &edge: edgePool.edges) {
+            Element neighbour1 = elPool.elements[edge.neighbourInd1];
+            if(neighbour1.is_boundary && edge.neighbourInd2 == -1){
+                std::vector<double> U1 = rotateStateFromAxisToNormal(elemUs_prev[neighbour1.ind], edge.normalVector);
+                int ghostInd = ns.boundaryToGhostElements[neighbour1.ind] - innerElemCount;
+                std::vector<double> U2 = rotateStateFromAxisToNormal(ghostElemUs[ghostInd], edge.normalVector);
+                fluxes[edge.ind] = HLLD_flux(U1, U2, gam_hcr);
+                unrotated_fluxes[edge.ind] = fluxes[edge.ind];
+                fluxes[edge.ind] = rotateStateFromNormalToAxisX(fluxes[edge.ind], edge.normalVector);
+            }
+            else if(neighbour1.is_ghost && edge.neighbourInd2 == -1){
+                //continue; //TODO
+                std::vector<double> U1 = rotateStateFromAxisToNormal(ghostElemUs[neighbour1.ind - innerElemCount], edge.normalVector);
+                fluxes[edge.ind] = HLLD_flux(U1, U1, gam_hcr);
+                unrotated_fluxes[edge.ind] = HLLD_flux(U1, U1, gam_hcr);
+                fluxes[edge.ind] = rotateStateFromNormalToAxisX(fluxes[edge.ind], edge.normalVector);
+            }
+            else{
+                std::vector<double> U1 = rotateStateFromAxisToNormal(elemUs_prev[neighbour1.ind], edge.normalVector);
+                Element neighbour2 = elPool.elements[edge.neighbourInd2];
+                std::vector<double> U2 = rotateStateFromAxisToNormal(elemUs_prev[neighbour2.ind], edge.normalVector);
+                fluxes[edge.ind] = HLLD_flux(U1, U2, gam_hcr);
+                unrotated_fluxes[edge.ind] = fluxes[edge.ind];
+                fluxes[edge.ind] = rotateStateFromNormalToAxisX(fluxes[edge.ind], edge.normalVector);
+            }
+        }
+
+        if(freeFLowBoundaries) {
+            for (const auto &[top, bot]: ns.boundaryElemTopToBottom) {
+                Element elGhostTop = elPool.elements[ns.boundaryToGhostElements[top]];
+                for (const auto &edgeInd: elGhostTop.edgeIndexes) {
+                    Edge edge = edgePool.edges[edgeInd];
+                    if (edge.is_ghost) {
+                        int corspEdge = ns.edgeToGhostEdges[edge.ind];
+                        unrotated_fluxes[edge.ind] = (-1.0) * unrotated_fluxes[corspEdge];
+                        fluxes[edge.ind] = rotateStateFromAxisToNormal(unrotated_fluxes[edge.ind], edge.normalVector);
+                    }
+                }
+                Element elGhostBot = elPool.elements[ns.boundaryToGhostElements[bot]];
+                for (const auto &edgeInd: elGhostBot.edgeIndexes) {
+                    Edge edge = edgePool.edges[edgeInd];
+                    if (edge.is_ghost) {
+                        int corspEdge = ns.edgeToGhostEdges[edge.ind];
+                        unrotated_fluxes[edge.ind] = (-1.0) * unrotated_fluxes[corspEdge];
+                        fluxes[edge.ind] = rotateStateFromAxisToNormal(unrotated_fluxes[edge.ind], edge.normalVector);
+                    }
+                }
+            }
+        }
+
+        // по явной схеме обновляем газовые величины
+        //#pragma omp parallel for
+        for (int i = 0; i < innerElemCount; ++i) {
+            Element elem = elPool.elements[i];
+            std::vector<double> fluxSum(8, 0.0);
+            if(elem.edgeIndexes.size() != 3){
+                std::cout << "Bad edge vector size != 3" << std::endl;
+            }
+            if(!elem.is_boundary || freeFLowBoundaries == false) {
+                for (int edgeIndex: elem.edgeIndexes) {
+                    Edge edge_j = edgePool.edges[edgeIndex];
+                    if (std::abs(edge_j.length) < 1e-16) {
+                        std::cout << "BAD EDGE LENGTH = 0!! " << edge_j.length << std::endl;
+                        Node node1 = nodePool.getNode(edge_j.nodeInd1);
+                        Node node2 = nodePool.getNode(edge_j.nodeInd2);
+                        std::cout << "edge: " << edge_j.ind << std::endl;
+                        std::cout << "node1 # " << edge_j.nodeInd1 << " { " << node1.x << ", " << node1.y << " } \n";
+                        std::cout << "node2 # " << edge_j.nodeInd2 << " { " << node2.x << ", " << node2.y << " } \n";
+                        Element elem1 = elPool.elements[edge_j.neighbourInd1];
+                        std::cout << "neigel1 # " << elem1.ind << " isBoundary = " << elem1.is_boundary
+                                  << " , isGhost = " << elem1.is_ghost << std::endl;
+                        std::cout << "neigel2 # " << edge_j.neighbourInd2 << std::endl;
+                        std::cin.get();
+
+                    }
+                    if (edge_j.neighbourInd1 == i) {
+                        fluxSum = fluxSum + edge_j.length * fluxes[edgeIndex];
+                    } else if (edge_j.neighbourInd2 == i) {
+                        fluxSum = fluxSum - edge_j.length * fluxes[edgeIndex];
+                    } else {
+                        //std::cerr << "No matching edge..."  << std::endl;
+                    }
+                }
+                elemUs[i] = elemUs_prev[i] - tau / elem.area * fluxSum;
+            }
+            else{
+                int ghostInd = ns.boundaryToGhostElements[i];
+                int ghostIndForState = ns.boundaryToGhostElements[i] - innerElemCount;
+                Element ghostEl = elPool.elements[ghostInd];
+                std::vector<int> commonEdges = findCommonElements(ghostEl.edgeIndexes, elem.edgeIndexes);
+                if(commonEdges.size() != 1){
+                    std::cout << "NO COMMON EDGES!" << std::endl;
+                    std::cout << elem.edgeIndexes[0] << ",  "<< elem.edgeIndexes[1] << ",  "<< elem.edgeIndexes[2] << "; vs/s ghost: " << ghostEl.edgeIndexes[0] << ",  " << ghostEl.edgeIndexes[1] << ",  " << ghostEl.edgeIndexes[2] << std::endl;
+                }
+                int commonEdgeInd = commonEdges[0];
+                double area = elem.area * 2.0;
+
+                for(const auto& edgeInd: elem.edgeIndexes){
+                    if(edgeInd == commonEdgeInd){
+                        continue;
+                    }
+                    Edge edge_j = edgePool.edges[edgeInd];
+                    if (std::abs(edge_j.length) < 1e-16) {
+                        std::cout << "BAD EDGE LENGTH = 0!! " << edge_j.length << std::endl;
+                        Node node1 = nodePool.getNode(edge_j.nodeInd1);
+                        Node node2 = nodePool.getNode(edge_j.nodeInd2);
+                        std::cout << "edge: " << edge_j.ind << std::endl;
+                        std::cout << "node1 # " << edge_j.nodeInd1 << " { " << node1.x << ", " << node1.y << " } \n";
+                        std::cout << "node2 # " << edge_j.nodeInd2 << " { " << node2.x << ", " << node2.y << " } \n";
+                        Element elem1 = elPool.elements[edge_j.neighbourInd1];
+                        std::cout << "neigel1 # " << elem1.ind << " isBoundary = " << elem1.is_boundary
+                                  << " , isGhost = " << elem1.is_ghost << std::endl;
+                        std::cout << "neigel2 # " << edge_j.neighbourInd2 << std::endl;
+                        std::cin.get();
+                    }
+                    if (edge_j.neighbourInd1 == i) {
+                        fluxSum = fluxSum + edge_j.length * fluxes[edgeInd];
+                    } else if (edge_j.neighbourInd2 == i) {
+                        fluxSum = fluxSum - edge_j.length * fluxes[edgeInd];
+                    } else {
+                        std::cerr << "No matching edge..."  << std::endl;
+                    }
+                }
+                for(const auto& ghostEdgeInd: ghostEl.edgeIndexes){
+                    if(ghostEdgeInd == commonEdgeInd){
+                        continue;
+                    }
+                    Edge edge_j = edgePool.edges[ghostEdgeInd];
+                    if (std::abs(edge_j.length) < 1e-16) {
+                        std::cout << "BAD EDGE LENGTH = 0!! " << edge_j.length << std::endl;
+                        Node node1 = nodePool.getNode(edge_j.nodeInd1);
+                        Node node2 = nodePool.getNode(edge_j.nodeInd2);
+                        std::cout << "edge: " << edge_j.ind << std::endl;
+                        std::cout << "node1 # " << edge_j.nodeInd1 << " { " << node1.x << ", " << node1.y << " } \n";
+                        std::cout << "node2 # " << edge_j.nodeInd2 << " { " << node2.x << ", " << node2.y << " } \n";
+                        Element elem1 = elPool.elements[edge_j.neighbourInd1];
+                        std::cout << "neigel1 # " << elem1.ind << " isBoundary = " << elem1.is_boundary
+                                  << " , isGhost = " << elem1.is_ghost << std::endl;
+                        std::cout << "neigel2 # " << edge_j.neighbourInd2 << std::endl;
+                        std::cin.get();
+                    }
+                    if (edge_j.neighbourInd1 == ghostEl.ind) {
+                        fluxSum = fluxSum + edge_j.length * fluxes[ghostEdgeInd];
+                    } else if (edge_j.neighbourInd2 == ghostEl.ind) {
+                        fluxSum = fluxSum - edge_j.length * fluxes[ghostEdgeInd];
+                    } else {
+                        std::cerr << "No matching edge..."  << std::endl;
+                    }
+                }
+                elemUs[i] = elemUs_prev[i] - tau / area * fluxSum;
+            }
+        }
+
+        // г.у (фикт ячейки) поставить перед выч-м потоков
+        if(periodicBoundaries){
+            // периодическое г.у.
+            for(const auto& [top, bot]: ns.boundaryElemTopToBottom){
+                int ghostIndTop = ns.boundaryToGhostElements[top] - innerElemCount;
+                int ghostIndBot = ns.boundaryToGhostElements[bot] - innerElemCount;
+                ghostElemUs[ghostIndTop] = elemUs[bot];
+                ghostElemUs[ghostIndBot] = elemUs[top];
+            }
+            for(const auto& [left, right]: ns.boundaryElemLeftToRight){
+                int ghostIndLeft = ns.boundaryToGhostElements[left] - innerElemCount;
+                int ghostIndRight = ns.boundaryToGhostElements[right] - innerElemCount;
+                ghostElemUs[ghostIndLeft] =  elemUs[right];
+                ghostElemUs[ghostIndRight] = elemUs[left];
+            }
+        }
+        else{
+            // копируем значения в соответствующие фантомные ячейки (условие free flow)
+            for(const auto& [boundary, ghost] : ns.boundaryToGhostElements){
+                int ghostInd = ghost - innerElemCount;
+                ghostElemUs[ghostInd] = elemUs[boundary];
+            }
+        }
+
+        for(auto& edge: edgePool.edges){
+            Element neighbour1 = elPool.elements[edge.neighbourInd1];
+            if(neighbour1.is_ghost){
+                edgeUs[edge.ind] = ghostElemUs[neighbour1.ind - innerElemCount];
+            }else if(neighbour1.is_boundary){
+                std::vector<double> U1 = elemUs[neighbour1.ind];
+                int ghostInd = ns.boundaryToGhostElements[neighbour1.ind] - innerElemCount;
+                std::vector<double> U2 = ghostElemUs[ghostInd];
+                edgeUs[edge.ind] = (1.0/(std::sqrt(U1[0]) + std::sqrt(U2[0]))) * (std::sqrt(U1[0]) * U1 + std::sqrt(U2[0]) * U2);
+            }else{
+                Element neighbour2 = elPool.elements[edge.neighbourInd2];
+                std::vector<double> U1 = elemUs[neighbour1.ind];
+                std::vector<double> U2 = elemUs[neighbour2.ind];
+                edgeUs[edge.ind] = (1.0/(std::sqrt(U1[0]) + std::sqrt(U2[0]))) * (std::sqrt(U1[0]) * U1 + std::sqrt(U2[0]) * U2);
+            }
+        }
+
+        //корректируем магнитные величины
+        //находим узловые значения нужных магнитных разностей //(v x B)z в узлах
+        std::vector<double> nodeMagDiffs(nodePool.nodeCount, 0.0); //(v x B)z в узлах
+//#pragma omp parallel for
+        for (const auto &node: nodePool.nodes) {
+            int tmp_count = 0;
+            for (const auto &neighbourEdgeInd: ns.getEdgeNeighborsOfNode(node.ind)) {
+                // добавить проверку на совпадения направлений в-ра скорости и нарпавляющего ребра
+                Edge neighbourEdge = edgePool.edges[neighbourEdgeInd];
+                if(elPool.elements[neighbourEdge.neighbourInd1].is_ghost && neighbourEdge.neighbourInd2 == -1){
+                    //std::cout << "SEE A GHOST!" << std::endl;
+                    //continue;
+                }
+                Node node1 = nodePool.getNode(neighbourEdge.nodeInd1);
+                Node node2 = nodePool.getNode(neighbourEdge.nodeInd2);
+                int inflowOrientation = 1;
+                double u = edgeUs[neighbourEdgeInd][1]/edgeUs[neighbourEdgeInd][0];
+                double v = edgeUs[neighbourEdgeInd][2]/edgeUs[neighbourEdgeInd][0];
+                if(neighbourEdge.nodeInd1 == node.ind){
+                    //inflowOrientation = sgn((u*(node1.x - node2.x) + v*(node1.y - node2.y)));
+                    //std::cout << "scalar mult = " << (u*(node1.x - node2.x) + v*(node1.y - node2.y)) <<" , orient = " << inflowOrientation <<std::endl;
+                    //std::cin.get();
+                }
+                else if(neighbourEdge.nodeInd2 == node.ind){
+                    //inflowOrientation =  sgn((u*(node2.x - node1.x) + v*(node2.y - node1.y)));
+                    //std::cout << "scalar mult = " <<  (u*(node2.x - node1.x) + v*(node2.y - node1.y))  <<" , orient = " << inflowOrientation <<std::endl;
+                    //std::cin.get();
+                }
+                if(inflowOrientation > 0) {
+                    nodeMagDiffs[node.ind] += unrotated_fluxes[neighbourEdgeInd][6];
+                    ++tmp_count;
+                }
+            }
+            if (tmp_count) {
+                nodeMagDiffs[node.ind] /= tmp_count;
+            }
+        }
+
+        //находим новое значение Bn в ребре (constrained transport)
+        std::vector<double> bNs_prev(bNs);
+        for (int i = 0; i < edgePool.edgeCount; ++i) {
+            Edge edge = edgePool.edges[i];
+            double r1 = nodePool.getNode(edge.nodeInd1).y;
+            double r2 = nodePool.getNode(edge.nodeInd2).y;
+            double r_mid = (r1 + r2)/2.0;
+            if(r_mid < 1e-14){
+                r_mid = 1e-14;
+            }
+            bNs[edge.ind] = bNs_prev[edge.ind] + (tau / (edge.length * r_mid)) * (r2 * nodeMagDiffs[edge.nodeInd2] -
+                                                                        r1 * nodeMagDiffs[edge.nodeInd1]);
+        }
+
+        //сносим Bn в центр элемента
+//#pragma omp parallel for
+        for (int i = 0; i < innerElemCount; ++i) {
+            Element elem = elPool.elements[i];
+            std::vector<double> centroid = getElementCentroid2D(elem, nodePool);
+            if(elem.edgeIndexes.empty()){
+                std::cerr << "Empty element! (no edges)" << std::endl;
+            }
+            double temp_sum_Bx = 0.0;
+            double temp_sum_By = 0.0;
+            for (const auto &edgeInd: elem.edgeIndexes) {
+                Edge edge = edgePool.edges[edgeInd];
+                std::vector<double> cTe = edge.midPoint - centroid;
+                double scmult = cTe[0]*edge.normalVector[0] + cTe[1]*edge.normalVector[1];
+                if (scmult > 0.0/*edge.neighbourInd1 == elem.ind*/) {
+                    // у первого соседа в эдже заданы ноды в порядке полодительного обхода и нормаль тоже
+                    const auto nodeInElemInd = std::find(elem.nodeIndexes.begin(), elem.nodeIndexes.end(),
+                                                         edge.nodeInd1);
+                    int node_before_ind =
+                            nodeInElemInd == elem.nodeIndexes.begin() ? elem.nodeIndexes[elem.dim - 1] : *(
+                                    nodeInElemInd - 1);
+                    //std::cout << "edge of nodes = {"<< edge.nodeInd1 << " , " << edge.nodeInd2 << " } current ind = " << edge.nodeInd1 <<" Elem's node indexes: " << elem.nodeIndexes[0] << " "<< elem.nodeIndexes[1] << " "<< elem.nodeIndexes[2] << ", node_beforeInd = " << node_before_ind << std::endl;
+                    //std::cin.get();
+                    Node node_before = nodePool.getNode(node_before_ind);
+                    if(edgeInd < innerEdgeCount) {
+                        temp_sum_Bx += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
+                        temp_sum_By += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                    }
+                    else{
+                        continue;
+                        temp_sum_Bx += ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
+                        temp_sum_By += ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                    }
+                } else if(scmult < 0.0/*edge.neighbourInd2 != -1*/){
+                    // а вот для второго нужно умножать на -1 и в обратном порядке
+                    const auto nodeInElemInd = std::find(elem.nodeIndexes.begin(), elem.nodeIndexes.end(),
+                                                         edge.nodeInd2);
+                    int node_before_ind =
+                            nodeInElemInd == elem.nodeIndexes.begin() ? elem.nodeIndexes[elem.dim - 1] : *(
+                                    nodeInElemInd - 1);
+                    Node node_before = nodePool.getNode(node_before_ind);
+                    if(edgeInd < innerEdgeCount) {
+                        temp_sum_Bx -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
+                        temp_sum_By -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                    }
+                    else{
+                        continue;
+                        temp_sum_Bx -= ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
+                        temp_sum_By -= ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                    }
+                }
+            }
+            if(elem.ind < innerElemCount) {
+                elemUs[elem.ind][5] = temp_sum_Bx;
+                elemUs[elem.ind][6] = temp_sum_By;
+            }
+            else{
+                // ghostElemUs_prev[elem.ind - innerElemCount][5] = temp_sum_Bx;
+                // ghostElemUs_prev[elem.ind - innerElemCount][6] = temp_sum_By;
+            }
+        }
+
+        // г.у (фикт ячейки) поставить перед выч-м потоков
+        if(periodicBoundaries){
+            // периодическое г.у.
+            for(const auto& [top, bot]: ns.boundaryElemTopToBottom){
+                int ghostIndTop = ns.boundaryToGhostElements[top] - innerElemCount;
+                int ghostIndBot = ns.boundaryToGhostElements[bot] - innerElemCount;
+                ghostElemUs[ghostIndTop] =  elemUs[bot];
+                ghostElemUs[ghostIndBot] = elemUs[top];
+            }
+            for(const auto& [left, right]: ns.boundaryElemLeftToRight){
+                int ghostIndLeft = ns.boundaryToGhostElements[left] - innerElemCount;
+                int ghostIndRight = ns.boundaryToGhostElements[right] - innerElemCount;
+                ghostElemUs[ghostIndLeft] =  elemUs[right];
+                ghostElemUs[ghostIndRight] = elemUs[left];
+            }
+        }
+        else{
+            // копируем значения в соответствующие фантомные ячейки (условие free flow)
+            for(const auto& [boundary, ghost] : ns.boundaryToGhostElements){
+                int ghostInd = ghost - innerElemCount;
+                ghostElemUs[ghostInd] = elemUs[boundary];
+            }
+        }
+
+//#pragma parallel for
+        for(const auto& u: elemUs){
+            for(const auto& val: u){
+                if(std::isnan(val)){
+                    foundNan = true;
+                    break;
+                }
+            }
+        }
+        if(foundNan){
+            std::cout << "Found a nan VALUE!!! Exiting the solver..." << std::endl;
+            break;
+        }
+        ++iterations;
     }
+    writeVTU("OutputData/tmpres_" + std::to_string(iterations) + ".vtu", ghostOutput);
+    std::cout << "Final time = " << currentTime << "; iterations = "<< iterations<<  std::endl;
+    divergence = computeDivergence();
+    std::cout << "Final divergence = " << divergence << std::endl;
 }
 
 
