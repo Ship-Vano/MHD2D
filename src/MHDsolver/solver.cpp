@@ -40,7 +40,7 @@ int main(){
     solver.debugDivergence = debugDivergence;
     solver.iterationsPerFrame = iterationsPerFrame;
     solver.ghostOutput = ghostOutput;
-    solver.runSolver();
+    solver.runCylindricSolver();
     std::cout << "solver complete" << std::endl;
 
     std::string exportFileName = json_root.get("exportFileName", "OutputData/unnamed_res.vtu").asString();
