@@ -1175,6 +1175,71 @@ std::vector<int> findCommonElements(const std::vector<int>& v1, const std::vecto
 
 void MHDSolver2D::setInitCylindricElemUs() {
     //TODO: implement initial distribution with a respect to cylindrical geometry
+    ElementPool ep = geometryWorld.getElementPool();
+    innerElemCount = ep.elCount - geometryWorld.ghostElemCount;
+    std::cout << "Element count = " << ep.elCount << " ; innerElCount = " << innerElemCount << " ; ghostElCOunt = " << geometryWorld.ghostElemCount << std::endl;
+    EdgePool edgp = geometryWorld.getEdgePool();
+    innerEdgeCount = edgp.edgeCount - geometryWorld.ghostElemCount * 2;
+    if(task_type == 0) {
+        cflNum = 0.4;
+        freeFLowBoundaries = true;
+        periodicBoundaries = false;
+        finalTime = 0.2;
+        std::cout << "SOLVING TASKTYPE 7 (SOD'S PROBLEM)" << std::endl;
+                                    /*rho   v_z   v_r    v_phi     p    Bz   Br   Bphi gam_hcr*/
+        std::vector<double> BrioWu_L1{1.0, 0.0, 0.0, 0.0, 1.0,  0.0, 0.0, 0.0, gam_hcr};
+        std::vector<double> BrioWu_R1{0.125, 0.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, gam_hcr};
+
+        initElemUs.resize(innerElemCount, std::vector<double>(8, 0.0));
+        for (int i = 0; i < innerElemCount; ++i) {
+            Element elem = ep.elements[i];
+            std::vector<double> centroid = elem.centroid2D;
+            int elInd = elem.ind;
+            if (centroid[0] < 0.5) {
+                initElemUs[elInd] = state_from_primitive_vars(BrioWu_L1);
+            } else {
+                initElemUs[elInd] = state_from_primitive_vars(BrioWu_R1);
+            }
+        }
+
+        initGhostElemUs.resize(geometryWorld.ghostElemCount, std::vector<double>(8, 0.0));
+        for(int i = innerElemCount; i < ep.elCount; ++i ){
+            Element elem = ep.elements[i];
+            std::vector<double> centroid = elem.centroid2D;
+            int elInd = elem.ind;
+            int ghostInd = elInd - innerElemCount;
+            if (centroid[0] < 0.5) {
+                initGhostElemUs[ghostInd] = state_from_primitive_vars(BrioWu_L1);
+            } else {
+                initGhostElemUs[ghostInd] = state_from_primitive_vars(BrioWu_R1);
+            }
+        }
+
+        initBns.resize(edgp.edgeCount, 0.0);
+        initGhostBNs.resize(geometryWorld.ghostElemCount*2, 0.0);
+        initEdgeUs.resize(edgp.edgeCount, std::vector<double>(8, 0.0));
+        for (int i = 0; i < edgp.edgeCount; ++i) {
+            Edge edge = edgp.edges[i];
+            std::vector<double> midP = edge.midPoint;
+            int edgeInd = edge.ind;
+            std::vector<double> normal = edge.normalVector;
+            std::vector<double> state;
+            if (midP[0] < 0.5) {
+                state = state_from_primitive_vars(BrioWu_L1);
+            } else {
+                state = state_from_primitive_vars(BrioWu_R1);
+            }
+            double Bn = state[5] * normal[0] + state[6] * normal[1];
+            initBns[edgeInd] = Bn;
+            if(i < innerEdgeCount) {
+                initBns[edgeInd] = Bn;
+            }else{
+                int ghostInd = edgeInd - innerEdgeCount;
+                initGhostBNs[ghostInd] = Bn;
+            }
+            initEdgeUs[edgeInd] = state;
+        }
+    }
 }
 
 void MHDSolver2D::runCylindricSolver() {
@@ -1190,7 +1255,8 @@ void MHDSolver2D::runCylindricSolver() {
     NeighbourService ns = geometryWorld.getNeighbourService();
 
     // инициализируем состояния
-    setInitElemUs();
+    task_type = 0; //TODO
+    setInitCylindricElemUs();
     elemUs = initElemUs;
     edgeUs = initEdgeUs;
     bNs = initBns;
@@ -1310,11 +1376,21 @@ void MHDSolver2D::runCylindricSolver() {
         //#pragma omp parallel for
         for (int i = 0; i < innerElemCount; ++i) {
             Element elem = elPool.elements[i];
+            if(elem.area < 1e-15){
+                std::cout << "ZERO ELEM AREA!!!" << std::endl;
+                continue;
+            }
             std::vector<double> fluxSum(8, 0.0);
             if(elem.edgeIndexes.size() != 3){
                 std::cout << "Bad edge vector size != 3" << std::endl;
+                continue;
             }
             if(!elem.is_boundary || freeFLowBoundaries == false) {
+                double baricent = (nodePool.getNode(elem.nodeIndexes[0]).y + nodePool.getNode(elem.nodeIndexes[1]).y + nodePool.getNode(elem.nodeIndexes[2]).y)/3.0;
+                if(baricent < 1e-14){
+                    baricent = 1e-14;
+                }
+                double  scale = tau / (baricent * elem.area);
                 for (int edgeIndex: elem.edgeIndexes) {
                     Edge edge_j = edgePool.edges[edgeIndex];
                     if (std::abs(edge_j.length) < 1e-16) {
@@ -1331,81 +1407,127 @@ void MHDSolver2D::runCylindricSolver() {
                         std::cin.get();
 
                     }
+                    double r1 = nodePool.getNode(edge_j.nodeInd1).y;
+                    double r2 = nodePool.getNode(edge_j.nodeInd2).y;
+                    double r_mid = (r1 + r2)/2.0;
+                    if(r_mid < 0){
+                        std::cout << "r_mid < 0! in inner elem" << std::endl;
+                    }
+                    if(r_mid < 1e-14){
+                        r_mid = 1e-14;
+                    }
                     if (edge_j.neighbourInd1 == i) {
-                        fluxSum = fluxSum + edge_j.length * fluxes[edgeIndex];
+                        fluxSum = fluxSum + r_mid * edge_j.length * fluxes[edgeIndex];
                     } else if (edge_j.neighbourInd2 == i) {
-                        fluxSum = fluxSum - edge_j.length * fluxes[edgeIndex];
+                        fluxSum = fluxSum - r_mid * edge_j.length * fluxes[edgeIndex];
                     } else {
-                        //std::cerr << "No matching edge..."  << std::endl;
+                        std::cerr << "No matching edge..."  << std::endl;
                     }
                 }
-                elemUs[i] = elemUs_prev[i] - tau / elem.area * fluxSum;
+                elemUs[i] = elemUs_prev[i] - scale * fluxSum;
             }
-            else{
+            else{ //TODO: проверить потоки на рёбрах второй половины (возможно)
                 int ghostInd = ns.boundaryToGhostElements[i];
-                int ghostIndForState = ns.boundaryToGhostElements[i] - innerElemCount;
                 Element ghostEl = elPool.elements[ghostInd];
-                std::vector<int> commonEdges = findCommonElements(ghostEl.edgeIndexes, elem.edgeIndexes);
-                if(commonEdges.size() != 1){
-                    std::cout << "NO COMMON EDGES!" << std::endl;
-                    std::cout << elem.edgeIndexes[0] << ",  "<< elem.edgeIndexes[1] << ",  "<< elem.edgeIndexes[2] << "; vs/s ghost: " << ghostEl.edgeIndexes[0] << ",  " << ghostEl.edgeIndexes[1] << ",  " << ghostEl.edgeIndexes[2] << std::endl;
+                int ghostNodeInd = *std::max_element(ghostEl.nodeIndexes.begin(),
+                                                     ghostEl.nodeIndexes.end()); //тк при генерации гост элементы уже после основных создаются => их индексы всегда больше
+                int ghostIndForState = ns.boundaryToGhostElements[i] - innerElemCount;
+                double r_ghost = nodePool.getNode(ghostNodeInd).y;
+                if(r_ghost < 0){
+                    //TODO: при r = 0 ставить как-то по-другому условия свободного вытекания
+                    continue;
+                }else {
+                    std::vector<int> commonEdges = findCommonElements(ghostEl.edgeIndexes, elem.edgeIndexes);
+                    if (commonEdges.size() != 1) {
+                        std::cout << "NO COMMON EDGES!" << std::endl;
+                        std::cout << elem.edgeIndexes[0] << ",  " << elem.edgeIndexes[1] << ",  " << elem.edgeIndexes[2]
+                                  << "; vs/s ghost: " << ghostEl.edgeIndexes[0] << ",  " << ghostEl.edgeIndexes[1]
+                                  << ",  " << ghostEl.edgeIndexes[2] << std::endl;
+                    }
+                    int commonEdgeInd = commonEdges[0];
+                    double area = elem.area * 2.0;
+                    double baricent = (nodePool.getNode(elem.nodeIndexes[0]).y + nodePool.getNode(elem.nodeIndexes[1]).y\
+                                        + nodePool.getNode(elem.nodeIndexes[2]).y + nodePool.getNode(ghostNodeInd).y) / 4.0;
+                    if (baricent < 1e-14) {
+                        baricent = 1e-14;
+                    }
+                    double scale = tau / (baricent * area);
+                    for (const auto &edgeInd: elem.edgeIndexes) {
+                        if (edgeInd == commonEdgeInd) {
+                            continue;
+                        }
+                        Edge edge_j = edgePool.edges[edgeInd];
+                        if (std::abs(edge_j.length) < 1e-16) {
+                            std::cout << "BAD EDGE LENGTH = 0!! " << edge_j.length << std::endl;
+                            Node node1 = nodePool.getNode(edge_j.nodeInd1);
+                            Node node2 = nodePool.getNode(edge_j.nodeInd2);
+                            std::cout << "edge: " << edge_j.ind << std::endl;
+                            std::cout << "node1 # " << edge_j.nodeInd1 << " { " << node1.x << ", " << node1.y
+                                      << " } \n";
+                            std::cout << "node2 # " << edge_j.nodeInd2 << " { " << node2.x << ", " << node2.y
+                                      << " } \n";
+                            Element elem1 = elPool.elements[edge_j.neighbourInd1];
+                            std::cout << "neigel1 # " << elem1.ind << " isBoundary = " << elem1.is_boundary
+                                      << " , isGhost = " << elem1.is_ghost << std::endl;
+                            std::cout << "neigel2 # " << edge_j.neighbourInd2 << std::endl;
+                            std::cin.get();
+                        }
+                        double r1 = nodePool.getNode(edge_j.nodeInd1).y;
+                        double r2 = nodePool.getNode(edge_j.nodeInd2).y;
+                        double r_mid = (r1 + r2) / 2.0;
+                        if (r_mid < 0) {
+                            std::cout << "r_mid < 0! in boundary elem edge" << std::endl;
+                        }
+                        if (r_mid < 1e-14) {
+                            r_mid = 1e-14;
+                        }
+                        if (edge_j.neighbourInd1 == i) {
+                            fluxSum = fluxSum + r_mid * edge_j.length * fluxes[edgeInd];
+                        } else if (edge_j.neighbourInd2 == i) {
+                            fluxSum = fluxSum - r_mid * edge_j.length * fluxes[edgeInd];
+                        } else {
+                            std::cerr << "No matching edge..." << std::endl;
+                        }
+                    }
+                    for (const auto &ghostEdgeInd: ghostEl.edgeIndexes) {
+                        if (ghostEdgeInd == commonEdgeInd) {
+                            continue;
+                        }
+                        Edge edge_j = edgePool.edges[ghostEdgeInd];
+                        if (std::abs(edge_j.length) < 1e-16) {
+                            std::cout << "BAD EDGE LENGTH = 0!! " << edge_j.length << std::endl;
+                            Node node1 = nodePool.getNode(edge_j.nodeInd1);
+                            Node node2 = nodePool.getNode(edge_j.nodeInd2);
+                            std::cout << "edge: " << edge_j.ind << std::endl;
+                            std::cout << "node1 # " << edge_j.nodeInd1 << " { " << node1.x << ", " << node1.y
+                                      << " } \n";
+                            std::cout << "node2 # " << edge_j.nodeInd2 << " { " << node2.x << ", " << node2.y
+                                      << " } \n";
+                            Element elem1 = elPool.elements[edge_j.neighbourInd1];
+                            std::cout << "neigel1 # " << elem1.ind << " isBoundary = " << elem1.is_boundary
+                                      << " , isGhost = " << elem1.is_ghost << std::endl;
+                            std::cout << "neigel2 # " << edge_j.neighbourInd2 << std::endl;
+                            std::cin.get();
+                        }
+                        double r1 = nodePool.getNode(edge_j.nodeInd1).y;
+                        double r2 = nodePool.getNode(edge_j.nodeInd2).y;
+                        double r_mid = (r1 + r2) / 2.0;
+                        if (r_mid < 0) {
+                            std::cout << r_mid << " r_mid < 0! in ghost elem edge" << std::endl;
+                        }
+                        if (r_mid < 1e-14) {
+                            r_mid = 1e-14;
+                        }
+                        if (edge_j.neighbourInd1 == ghostEl.ind) {
+                            fluxSum = fluxSum + r_mid * edge_j.length * fluxes[ghostEdgeInd];
+                        } else if (edge_j.neighbourInd2 == ghostEl.ind) {
+                            fluxSum = fluxSum - r_mid * edge_j.length * fluxes[ghostEdgeInd];
+                        } else {
+                            std::cerr << "No matching edge..." << std::endl;
+                        }
+                    }
+                    elemUs[i] = elemUs_prev[i] - scale * fluxSum;
                 }
-                int commonEdgeInd = commonEdges[0];
-                double area = elem.area * 2.0;
-
-                for(const auto& edgeInd: elem.edgeIndexes){
-                    if(edgeInd == commonEdgeInd){
-                        continue;
-                    }
-                    Edge edge_j = edgePool.edges[edgeInd];
-                    if (std::abs(edge_j.length) < 1e-16) {
-                        std::cout << "BAD EDGE LENGTH = 0!! " << edge_j.length << std::endl;
-                        Node node1 = nodePool.getNode(edge_j.nodeInd1);
-                        Node node2 = nodePool.getNode(edge_j.nodeInd2);
-                        std::cout << "edge: " << edge_j.ind << std::endl;
-                        std::cout << "node1 # " << edge_j.nodeInd1 << " { " << node1.x << ", " << node1.y << " } \n";
-                        std::cout << "node2 # " << edge_j.nodeInd2 << " { " << node2.x << ", " << node2.y << " } \n";
-                        Element elem1 = elPool.elements[edge_j.neighbourInd1];
-                        std::cout << "neigel1 # " << elem1.ind << " isBoundary = " << elem1.is_boundary
-                                  << " , isGhost = " << elem1.is_ghost << std::endl;
-                        std::cout << "neigel2 # " << edge_j.neighbourInd2 << std::endl;
-                        std::cin.get();
-                    }
-                    if (edge_j.neighbourInd1 == i) {
-                        fluxSum = fluxSum + edge_j.length * fluxes[edgeInd];
-                    } else if (edge_j.neighbourInd2 == i) {
-                        fluxSum = fluxSum - edge_j.length * fluxes[edgeInd];
-                    } else {
-                        std::cerr << "No matching edge..."  << std::endl;
-                    }
-                }
-                for(const auto& ghostEdgeInd: ghostEl.edgeIndexes){
-                    if(ghostEdgeInd == commonEdgeInd){
-                        continue;
-                    }
-                    Edge edge_j = edgePool.edges[ghostEdgeInd];
-                    if (std::abs(edge_j.length) < 1e-16) {
-                        std::cout << "BAD EDGE LENGTH = 0!! " << edge_j.length << std::endl;
-                        Node node1 = nodePool.getNode(edge_j.nodeInd1);
-                        Node node2 = nodePool.getNode(edge_j.nodeInd2);
-                        std::cout << "edge: " << edge_j.ind << std::endl;
-                        std::cout << "node1 # " << edge_j.nodeInd1 << " { " << node1.x << ", " << node1.y << " } \n";
-                        std::cout << "node2 # " << edge_j.nodeInd2 << " { " << node2.x << ", " << node2.y << " } \n";
-                        Element elem1 = elPool.elements[edge_j.neighbourInd1];
-                        std::cout << "neigel1 # " << elem1.ind << " isBoundary = " << elem1.is_boundary
-                                  << " , isGhost = " << elem1.is_ghost << std::endl;
-                        std::cout << "neigel2 # " << edge_j.neighbourInd2 << std::endl;
-                        std::cin.get();
-                    }
-                    if (edge_j.neighbourInd1 == ghostEl.ind) {
-                        fluxSum = fluxSum + edge_j.length * fluxes[ghostEdgeInd];
-                    } else if (edge_j.neighbourInd2 == ghostEl.ind) {
-                        fluxSum = fluxSum - edge_j.length * fluxes[ghostEdgeInd];
-                    } else {
-                        std::cerr << "No matching edge..."  << std::endl;
-                    }
-                }
-                elemUs[i] = elemUs_prev[i] - tau / area * fluxSum;
             }
         }
 
@@ -1492,8 +1614,8 @@ void MHDSolver2D::runCylindricSolver() {
         std::vector<double> bNs_prev(bNs);
         for (int i = 0; i < edgePool.edgeCount; ++i) {
             Edge edge = edgePool.edges[i];
-            double r1 = nodePool.getNode(edge.nodeInd1).x;
-            double r2 = nodePool.getNode(edge.nodeInd2).x;
+            double r1 = nodePool.getNode(edge.nodeInd1).y;
+            double r2 = nodePool.getNode(edge.nodeInd2).y;
             double r_mid = (r1 + r2)/2.0;
             if(r_mid < 1e-14){
                 r_mid = 1e-14;
