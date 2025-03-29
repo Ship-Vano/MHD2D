@@ -1492,8 +1492,8 @@ void MHDSolver2D::runCylindricSolver() {
         std::vector<double> bNs_prev(bNs);
         for (int i = 0; i < edgePool.edgeCount; ++i) {
             Edge edge = edgePool.edges[i];
-            double r1 = nodePool.getNode(edge.nodeInd1).y;
-            double r2 = nodePool.getNode(edge.nodeInd2).y;
+            double r1 = nodePool.getNode(edge.nodeInd1).x;
+            double r2 = nodePool.getNode(edge.nodeInd2).x;
             double r_mid = (r1 + r2)/2.0;
             if(r_mid < 1e-14){
                 r_mid = 1e-14;
