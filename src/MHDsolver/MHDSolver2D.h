@@ -9,6 +9,9 @@
 #include "MHDSolver1D.h"
 #include "omp.h"
 
+#include <numbers>
+
+
 class MHDSolver2D {
 public:
     // mesh

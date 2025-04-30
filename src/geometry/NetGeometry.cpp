@@ -287,7 +287,7 @@ NeighbourService::NeighbourService(const NodePool& np, const ElementPool& ep, co
 
     // map узел -> соседи-элементы
 #pragma omp parallel for
-    for (size_t i = 0; i < ep.elements.size(); ++i) {
+    for (int i = 0; i < ep.elements.size(); ++i) {
         const auto& element = ep.elements[i];
 
         // thread-safe update
@@ -302,7 +302,7 @@ NeighbourService::NeighbourService(const NodePool& np, const ElementPool& ep, co
 
     // map узел -> соседи-рёбра
 #pragma omp parallel for
-    for (size_t edgeIndex = 0; edgeIndex < edgePool.edges.size(); ++edgeIndex) {
+    for (int edgeIndex = 0; edgeIndex < edgePool.edges.size(); ++edgeIndex) {
         const auto& edge = edgePool.edges[edgeIndex];
 #pragma omp critical(nodeToEdgesMap)
         {
@@ -750,7 +750,7 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
         ns.nodeToEdgesMap.clear();
         ns.nodeToEdgesMap.reserve(np.nodeCount);
 #pragma omp parallel for
-        for (size_t edgeIndex = 0; edgeIndex < edgp.edges.size(); ++edgeIndex) {
+        for (int edgeIndex = 0; edgeIndex < edgp.edges.size(); ++edgeIndex) {
             const auto& edge = edgp.edges[edgeIndex];
 #pragma omp critical(nodeToEdgesMap)
             {

@@ -244,7 +244,7 @@ void MHDSolver2D::setInitElemUs() {
         double rho0 = 1.0;
         double p0 = 1.0;
         double v0 = 0.0;
-        double B0 = 1.0/ (std::sqrt(4.0 * M_PI));
+        double B0 = 1.0/ (std::sqrt(4.0 * std::numbers::pi_v<double>));
         double xi = 0.2;
         gam_hcr = 5.0/3.0;
         cflNum = 0.4;
@@ -258,13 +258,13 @@ void MHDSolver2D::setInitElemUs() {
             std::vector<double> centroid = elem.centroid2D;
             double x = centroid[0];
             double y = centroid[1];
-            double phase = 2.0 * M_PI / ny * (nx * x + ny * y);
+            double phase = 2.0 * std::numbers::pi_v<double> / ny * (nx * x + ny * y);
             double u_0 = v0 * nx - xi * ny * std::cos(phase);
             double v_0 = v0 * ny + xi * nx * std::cos(phase);
             double w_0 = xi * std::sin(phase);
-            double Bx_0 = B0 * nx + xi * ny * std::sqrt(4 * M_PI * rho0) * std::cos(phase);
-            double By_0 = B0 * ny - xi * nx * std::sqrt(4 * M_PI * rho0) * std::cos(phase);
-            double Bz_0 = - xi * std::sqrt(4 * M_PI * rho0) * std::sin(phase);
+            double Bx_0 = B0 * nx + xi * ny * std::sqrt(4 * std::numbers::pi_v<double> * rho0) * std::cos(phase);
+            double By_0 = B0 * ny - xi * nx * std::sqrt(4 * std::numbers::pi_v<double> * rho0) * std::cos(phase);
+            double Bz_0 = - xi * std::sqrt(4 * std::numbers::pi_v<double> * rho0) * std::sin(phase);
             if(i < innerElemCount) {
                 initElemUs[elem.ind] = state_from_primitive_vars2D(rho0, u_0, v_0, w_0, p0, Bx_0, By_0, Bz_0, gam_hcr);
             }
@@ -283,13 +283,13 @@ void MHDSolver2D::setInitElemUs() {
             Edge edge = edgp.edges[i];
             double x = edge.midPoint[0];
             double y = edge.midPoint[1];
-            double phase = 2.0 * M_PI / ny * (nx * x + ny * y);
+            double phase = 2.0 * std::numbers::pi_v<double> / ny * (nx * x + ny * y);
             double u_0 = v0 * nx - xi * ny * std::cos(phase);
             double v_0 = v0 * ny + xi * nx * std::cos(phase);
             double w_0 = xi * std::sin(phase);
-            double Bx_0 = B0 * nx + xi * ny * std::sqrt(4 * M_PI * rho0) * std::cos(phase);
-            double By_0 = B0 * ny - xi * nx * std::sqrt(4 * M_PI * rho0) * std::cos(phase);
-            double Bz_0 = - xi * std::sqrt(4 * M_PI * rho0) * std::sin(phase);
+            double Bx_0 = B0 * nx + xi * ny * std::sqrt(4 * std::numbers::pi_v<double> * rho0) * std::cos(phase);
+            double By_0 = B0 * ny - xi * nx * std::sqrt(4 * std::numbers::pi_v<double> * rho0) * std::cos(phase);
+            double Bz_0 = - xi * std::sqrt(4 * std::numbers::pi_v<double> * rho0) * std::sin(phase);
             double Bn = Bx_0 * edge.normalVector[0] + By_0 * edge.normalVector[1];
             initBns[edge.ind] = Bn;
             if(i < innerEdgeCount) {
@@ -306,7 +306,7 @@ void MHDSolver2D::setInitElemUs() {
         double rho0 = 1.0;
         double p0 = 1.0;
         double v0 = 0.0;
-        double B0 = 1.0/ (std::sqrt(4.0 * M_PI));
+        double B0 = 1.0/ (std::sqrt(4.0 * std::numbers::pi_v<double>));
         double xi = 0.2;
         gam_hcr = 5.0/3.0;
         cflNum = 0.4;
@@ -394,7 +394,7 @@ void MHDSolver2D::setInitElemUs() {
         double r1 = 0.115;
         double v0 = 2.0;
         double p = 1.0;
-        double Bx = 5.0/std::sqrt(4*M_PI);
+        double Bx = 5.0/std::sqrt(4*std::numbers::pi_v<double>);
         gam_hcr = 1.4;
         finalTime = 0.15;
         cflNum = 0.5;
@@ -439,8 +439,8 @@ void MHDSolver2D::setInitElemUs() {
     }
     else if(task_type == 5){
         std::cout << "SOLVING TASKTYPE 5: Orszang-Tang vortex" << std::endl;
-        double rho = 25.0 / (36.0 * M_PI);
-        double p = 5.0 / (12.0 * M_PI);
+        double rho = 25.0 / (36.0 * std::numbers::pi_v<double>);
+        double p = 5.0 / (12.0 * std::numbers::pi_v<double>);
         gam_hcr = 5.0/3.0;
         finalTime = 0.5;
         cflNum = 0.5;
@@ -454,11 +454,11 @@ void MHDSolver2D::setInitElemUs() {
             std::vector<double> centroid = elem.centroid2D;
             double x = centroid[0];
             double y = centroid[1];
-            double u = (-1) * std::sin(2.0 * M_PI * y) ;
-            double v = std::sin(2.0 * M_PI * x);
+            double u = (-1) * std::sin(2.0 * std::numbers::pi_v<double> * y) ;
+            double v = std::sin(2.0 * std::numbers::pi_v<double> * x);
             double w = 0.0;
-            double Bx = (-1) * std::sin(2.0 * M_PI  * y)/ (std::sqrt(4.0 * M_PI));
-            double By = std::sin(4.0 * M_PI * x)/ (std::sqrt(4.0 * M_PI));
+            double Bx = (-1) * std::sin(2.0 * std::numbers::pi_v<double>  * y)/ (std::sqrt(4.0 * std::numbers::pi_v<double>));
+            double By = std::sin(4.0 * std::numbers::pi_v<double> * x)/ (std::sqrt(4.0 * std::numbers::pi_v<double>));
             double Bz = 0.0;
             initElemUs[elem.ind] = state_from_primitive_vars2D(rho, u, v, w, p, Bx, By, Bz, gam_hcr);
         }
@@ -472,8 +472,8 @@ void MHDSolver2D::setInitElemUs() {
             Edge edge = edgp.edges[i];
             double x = edge.midPoint[0];
             double y = edge.midPoint[1];
-            double Bx = (-1) * std::sin(2.0 * M_PI  * y)/ (std::sqrt(4.0 * M_PI));
-            double By = std::sin(4.0 * M_PI * x)/ (std::sqrt(4.0 * M_PI));
+            double Bx = (-1) * std::sin(2.0 * std::numbers::pi_v<double>  * y)/ (std::sqrt(4.0 * std::numbers::pi_v<double>));
+            double By = std::sin(4.0 * std::numbers::pi_v<double> * x)/ (std::sqrt(4.0 * std::numbers::pi_v<double>));
             double Bn = Bx * edge.normalVector[0] +  By * edge.normalVector[1];
             initBns[edge.ind] = Bn;
             if(i < innerEdgeCount) {
