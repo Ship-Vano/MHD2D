@@ -7,6 +7,7 @@
 
 #include "NetGeometry.h"
 #include "MHDSolver1D.h"
+#include "MHDgpu.cuh"
 #include "omp.h"
 
 #include <numbers>

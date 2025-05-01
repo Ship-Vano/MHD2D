@@ -483,7 +483,8 @@ void MHDSolver2D::setInitElemUs() {
                 initGhostBNs[edge.ind - innerEdgeCount] = Bn;
             }
         }
-    } else if(task_type == 6) {
+    }
+    else if(task_type == 6) {
         cflNum = 0.4;
         freeFLowBoundaries = true;
         periodicBoundaries = false;
@@ -541,7 +542,8 @@ void MHDSolver2D::setInitElemUs() {
             }
             initEdgeUs[edgeInd] = state;
         }
-    }else if(task_type == 7) {
+    }
+    else if(task_type == 7) {
         cflNum = 0.4;
         freeFLowBoundaries = true;
         periodicBoundaries = false;
@@ -599,6 +601,53 @@ void MHDSolver2D::setInitElemUs() {
                 initGhostBNs[ghostInd] = Bn;
             }
             initEdgeUs[edgeInd] = state;
+        }
+    }
+    else if(task_type == 8){
+        std::cout << "SOLVING TASKTYPE 8: Linear 2d wave" << std::endl;
+        double rho = 25.0 / (36.0 * std::numbers::pi_v<double>);
+        double p = 5.0 / (12.0 * std::numbers::pi_v<double>);
+        gam_hcr = 5.0/3.0;
+        finalTime = 0.5;
+        cflNum = 0.5;
+        periodicBoundaries = true;
+        initElemUs.resize(innerElemCount, std::vector<double>(8, 0.0));
+        initEdgeUs.resize(edgp.edgeCount, std::vector<double>(8, 0.0));
+        initBns.resize(edgp.edgeCount, 0.0);
+        initGhostElemUs.resize(geometryWorld.ghostElemCount, std::vector<double>(8, 0.0));
+        for (int i = 0; i < innerElemCount; ++i) {
+            Element elem = ep.elements[i];
+            std::vector<double> centroid = elem.centroid2D;
+            double x = centroid[0];
+            double y = centroid[1];
+            double u = (-1) * std::sin(2.0 * std::numbers::pi_v<double> * y) ;
+            double v = std::sin(2.0 * std::numbers::pi_v<double> * x);
+            double w = 0.0;
+            double Bx = (-1) * std::sin(2.0 * std::numbers::pi_v<double>  * y)/ (std::sqrt(4.0 * std::numbers::pi_v<double>));
+            double By = std::sin(4.0 * std::numbers::pi_v<double> * x)/ (std::sqrt(4.0 * std::numbers::pi_v<double>));
+            double Bz = 0.0;
+            initElemUs[elem.ind] = state_from_primitive_vars2D(rho, u, v, w, p, Bx, By, Bz, gam_hcr);
+        }
+        NeighbourService ns = geometryWorld.getNeighbourService();
+        for(const auto& [boundary, ghost]: ns.boundaryToGhostElements){
+            int ghostInd = ghost - innerElemCount;
+            initGhostElemUs[ghostInd] =  initElemUs[boundary];
+        }
+        initGhostBNs.resize(geometryWorld.ghostElemCount*2, 0.0);
+        for(int i = 0; i < edgp.edgeCount; ++i){
+            Edge edge = edgp.edges[i];
+            double x = edge.midPoint[0];
+            double y = edge.midPoint[1];
+            double Bx = (-1) * std::sin(2.0 * std::numbers::pi_v<double>  * y)/ (std::sqrt(4.0 * std::numbers::pi_v<double>));
+            double By = std::sin(4.0 * std::numbers::pi_v<double> * x)/ (std::sqrt(4.0 * std::numbers::pi_v<double>));
+            double Bn = Bx * edge.normalVector[0] +  By * edge.normalVector[1];
+            initBns[edge.ind] = Bn;
+            if(i < innerEdgeCount) {
+                initBns[edge.ind] = Bn;
+            }
+            else{
+                initGhostBNs[edge.ind - innerEdgeCount] = Bn;
+            }
         }
     }
 }
@@ -1777,12 +1826,18 @@ void MHDSolver2D::runGPUSolver() {
     std::vector<std::vector<double>> ghostElemUs_prev(initGhostElemUs.size(), std::vector<double>(8, 0.0));
     ghostElemUs_prev = initGhostElemUs;
 
-    // проверка на нормировку нормалей
+    // проверка на нормировку нормалей + предобработка для gpu
     for(const auto edge: edgePool.edges){
         double norm = std::sqrt(edge.normalVector[0]*edge.normalVector[0] + edge.normalVector[1]*edge.normalVector[1]);
         if(std::abs(1.0-norm) > 1e-15){
             std::cout << "bad normal! |1 - norm| = " << std::abs(1.0-norm) << " edge.is_ghost = " << edge.is_ghost <<std::endl;
         }
+//        Element neighbour1 = elPool.elements[edge.neighbourInd1];
+//        if(neighbour1.is_boundary && edge.neighbourInd2 == -1){
+//            int ghostInd = ns.boundaryToGhostElements[neighbour1.ind] - innerElemCount;
+//        }
+//        else if(neighbour1.is_ghost && edge.neighbourInd2 == -1){}
+//        else{}
     }
 
     // дивергенция магнитного поля
@@ -1834,33 +1889,7 @@ void MHDSolver2D::runGPUSolver() {
         std::vector<std::vector<double>> fluxes(edgePool.edges.size(), std::vector<double>(8, 0.0));
         std::vector<std::vector<double>> unrotated_fluxes(edgePool.edges.size(), std::vector<double>(8, 0.0));
 
-
-        for (const auto &edge: edgePool.edges) {
-            Element neighbour1 = elPool.elements[edge.neighbourInd1];
-            if(neighbour1.is_boundary && edge.neighbourInd2 == -1){
-                std::vector<double> U1 = rotateStateFromAxisToNormal(elemUs_prev[neighbour1.ind], edge.normalVector);
-                int ghostInd = ns.boundaryToGhostElements[neighbour1.ind] - innerElemCount;
-                std::vector<double> U2 = rotateStateFromAxisToNormal(ghostElemUs[ghostInd], edge.normalVector);
-                fluxes[edge.ind] = HLLD_flux(U1, U2, gam_hcr);
-                unrotated_fluxes[edge.ind] = fluxes[edge.ind];
-                fluxes[edge.ind] = rotateStateFromNormalToAxisX(fluxes[edge.ind], edge.normalVector);
-            }
-            else if(neighbour1.is_ghost && edge.neighbourInd2 == -1){
-                //continue; //TODO
-                std::vector<double> U1 = rotateStateFromAxisToNormal(ghostElemUs[neighbour1.ind - innerElemCount], edge.normalVector);
-                fluxes[edge.ind] = HLLD_flux(U1, U1, gam_hcr);
-                unrotated_fluxes[edge.ind] = HLLD_flux(U1, U1, gam_hcr);
-                fluxes[edge.ind] = rotateStateFromNormalToAxisX(fluxes[edge.ind], edge.normalVector);
-            }
-            else{
-                std::vector<double> U1 = rotateStateFromAxisToNormal(elemUs_prev[neighbour1.ind], edge.normalVector);
-                Element neighbour2 = elPool.elements[edge.neighbourInd2];
-                std::vector<double> U2 = rotateStateFromAxisToNormal(elemUs_prev[neighbour2.ind], edge.normalVector);
-                fluxes[edge.ind] = HLLD_flux(U1, U2, gam_hcr);
-                unrotated_fluxes[edge.ind] = fluxes[edge.ind];
-                fluxes[edge.ind] = rotateStateFromNormalToAxisX(fluxes[edge.ind], edge.normalVector);
-            }
-        }
+        computeHLLDFluxesGPU(elPool.elements, edgePool.edges, elemUs_prev, ghostElemUs, innerElemCount, ns.boundaryToGhostElements, gam_hcr, fluxes, unrotated_fluxes);
 
         //boundary conditions
         if(freeFLowBoundaries) {

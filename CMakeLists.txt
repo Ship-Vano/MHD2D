@@ -28,6 +28,7 @@ add_executable(MHD2D
     src/MHDsolver/MHDSolver2D.cpp
     src/MHDsolver/solver.cpp
     src/MHDsolver/MHDgpu.cu
+    src/MHDsolver/GPUFunctions.cu
     src/include/json/jsoncpp.cpp
     src/geometry/NetGeometry.cpp
 )
