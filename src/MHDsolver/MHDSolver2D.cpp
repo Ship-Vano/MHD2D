@@ -1886,10 +1886,19 @@ void MHDSolver2D::runGPUSolver() {
 
         // вычисляем потоки, проходящие через каждое ребро
         // инициализируем вектор потоков через рёбра // MHD (HLLD) fluxes (from one element to another "<| -> |>")
+        std::vector<double> fluxes_flat(edgePool.edges.size() * 8, 0.0);
+        std::vector<double> unrotated_fluxes_flat(edgePool.edges.size() * 8, 0.0);
+
+        computeHLLDFluxesGPU(elPool.elements, edgePool.edges, elemUs_prev, ghostElemUs, innerElemCount, ns.boundaryToGhostElements, gam_hcr, fluxes_flat, unrotated_fluxes_flat);
+
         std::vector<std::vector<double>> fluxes(edgePool.edges.size(), std::vector<double>(8, 0.0));
         std::vector<std::vector<double>> unrotated_fluxes(edgePool.edges.size(), std::vector<double>(8, 0.0));
-
-        computeHLLDFluxesGPU(elPool.elements, edgePool.edges, elemUs_prev, ghostElemUs, innerElemCount, ns.boundaryToGhostElements, gam_hcr, fluxes, unrotated_fluxes);
+        for(int ii = 0; ii < fluxes.size(); ++ii){
+            for(int kk =0 ; kk < 8; ++kk){
+                fluxes[ii][kk] = fluxes_flat[ii*8 + kk];
+                unrotated_fluxes[ii][kk] = unrotated_fluxes_flat[ii*8 + kk];
+            }
+        }
 
         //boundary conditions
         if(freeFLowBoundaries) {

@@ -9,8 +9,8 @@ void computeHLLDFluxesGPU(const std::vector<Element> &elemHost,
                           const int innerElemCount,
                           unordered_map<int, int> &bTg_map,
                           const double gam_hcr,
-                          std::vector<std::vector<double>> &fluxHost,
-                          std::vector<std::vector<double>> &unrotated_fluxHost) {
+                          std::vector<double> &fluxHost,
+                          std::vector<double> &unrotated_fluxHost) {
 
     int N = (int)elemHost.size();
     int ghostN = N - innerElemCount;
@@ -20,13 +20,13 @@ void computeHLLDFluxesGPU(const std::vector<Element> &elemHost,
     GPU_Element *d_elems;
     GPU_Element *d_ghost_elems;
     GPU_Edge    *d_edges;
-    GPU_Flux    *d_fluxes;
-    GPU_Flux    *d_unrotated_fluxes;
+    double    *d_fluxes;
+    double    *d_unrotated_fluxes;
     cudaMalloc(&d_elems, sizeof(GPU_Element)*N);                    //  2
     cudaMalloc(&d_ghost_elems, sizeof(GPU_Element)*N);
     cudaMalloc(&d_edges, sizeof(GPU_Edge)*M);                       //  3
-    cudaMalloc(&d_fluxes, sizeof(GPU_Flux)*M);                      //  4
-    cudaMalloc(&d_unrotated_fluxes, sizeof(GPU_Flux)*M);
+    cudaMalloc(&d_fluxes, sizeof(double)*M*8);                      //  4
+    cudaMalloc(&d_unrotated_fluxes, sizeof(double)*M*8);
 
     //  2. Подготавливаем и копируем данные
     std::vector<GPU_Element> elems(innerElemCount);
@@ -68,10 +68,8 @@ void computeHLLDFluxesGPU(const std::vector<Element> &elemHost,
     kernelComputeHLLD<<<blocks, threadsPerBlock>>>(d_elems, d_ghost_elems, d_edges, d_fluxes, d_unrotated_fluxes, M, gam_hcr); // 11
 
     //  4. Копируем результат
-    fluxHost.resize(M);                                            // 12
-    unrotated_fluxHost.resize(M);
-    cudaMemcpy(fluxHost.data(), d_fluxes, sizeof(GPU_Flux)*M, cudaMemcpyDeviceToHost); // 13
-    cudaMemcpy(unrotated_fluxHost.data(), d_unrotated_fluxes, sizeof(GPU_Flux)*M, cudaMemcpyDeviceToHost);
+    cudaMemcpy(fluxHost.data(), d_fluxes, sizeof(double)*8*M, cudaMemcpyDeviceToHost); // 13
+    cudaMemcpy(unrotated_fluxHost.data(), d_unrotated_fluxes, sizeof(double)*8*M, cudaMemcpyDeviceToHost);
 
     //  5. Освобождаем
     cudaFree(d_elems); cudaFree(d_edges); cudaFree(d_fluxes);
@@ -82,28 +80,31 @@ void computeHLLDFluxesGPU(const std::vector<Element> &elemHost,
 __global__ void kernelComputeHLLD(const GPU_Element *elems,
                                   const GPU_Element *ghost_elems,
                                   const GPU_Edge    *edges,
-                                  GPU_Flux          *fluxes,
-                                  GPU_Flux          *unrotated_fluxes,
+                                  double          *fluxes,
+                                  double          *unrotated_fluxes,
                                   int               numEdges,
                                   const double gam_hcr) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;                    //  1
     if (i >= numEdges) return;                                        //  2
+
+    double *F = fluxes + i*8;
+    double *Fu = unrotated_fluxes + i*8;
 
     const GPU_Edge &e = edges[i];                                     //  3
 
     if(e.neighbour1_is_boundary && e.right == -1){
         const GPU_Element &EL = elems[e.left];
         const GPU_Element &ER = ghost_elems[e.ghostInd];
-        device_HLLD_flux(EL.U, ER.U, e.nx, e.ny, fluxes[i].F, unrotated_fluxes[i].F, gam_hcr);
+        device_HLLD_flux(EL.U, ER.U, e.nx, e.ny, F, Fu, gam_hcr);
     }
     else if(e.neighbour1_is_ghost && e.right == -1){
         const GPU_Element &EL = ghost_elems[e.ghostInd];
         const GPU_Element &ER = ghost_elems[e.ghostInd];
-        device_HLLD_flux(EL.U, ER.U, e.nx, e.ny, fluxes[i].F, unrotated_fluxes[i].F, gam_hcr);
+        device_HLLD_flux(EL.U, ER.U, e.nx, e.ny, F, Fu, gam_hcr);
     }
     else{
         const GPU_Element &EL = elems[e.left];
         const GPU_Element &ER = elems[e.right];
-        device_HLLD_flux(EL.U, ER.U, e.nx, e.ny, fluxes[i].F, unrotated_fluxes[i].F, gam_hcr);
+        device_HLLD_flux(EL.U, ER.U, e.nx, e.ny, F, Fu, gam_hcr);
     }
 }

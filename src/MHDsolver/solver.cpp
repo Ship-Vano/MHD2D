@@ -42,11 +42,15 @@ int main(){
     solver.ghostOutput = ghostOutput;
 
     bool cylindrical= json_root.get("cylindrical", false).asBool();
+    bool gpu = json_root.get("gpu", false).asBool();
     if(cylindrical){
         solver.runCylindricSolver();
     }
-    else{
+    else if(gpu){
         solver.runGPUSolver();
+    }
+    else{
+        solver.runSolver();
     }
     std::cout << "solver complete" << std::endl;
 
