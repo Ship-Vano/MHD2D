@@ -7,7 +7,7 @@ void computeHLLDFluxesGPU(const std::vector<Element> &elemHost,
                           const std::vector<std::vector<double>> &elemUs,
                           const std::vector<std::vector<double>> &ghostElemUs,
                           const int innerElemCount,
-                          unordered_map<int, int> &bTg_map,
+                          unordered_map<int, int> bTg_map,
                           const double gam_hcr,
                           std::vector<double> &fluxHost,
                           std::vector<double> &unrotated_fluxHost) {
@@ -22,8 +22,8 @@ void computeHLLDFluxesGPU(const std::vector<Element> &elemHost,
     GPU_Edge    *d_edges;
     double    *d_fluxes;
     double    *d_unrotated_fluxes;
-    cudaMalloc(&d_elems, sizeof(GPU_Element)*N);                    //  2
-    cudaMalloc(&d_ghost_elems, sizeof(GPU_Element)*N);
+    cudaMalloc(&d_elems, sizeof(GPU_Element)*innerElemCount);                    //  2
+    cudaMalloc(&d_ghost_elems, sizeof(GPU_Element)*ghostN);
     cudaMalloc(&d_edges, sizeof(GPU_Edge)*M);                       //  3
     cudaMalloc(&d_fluxes, sizeof(double)*M*8);                      //  4
     cudaMalloc(&d_unrotated_fluxes, sizeof(double)*M*8);
@@ -51,7 +51,7 @@ void computeHLLDFluxesGPU(const std::vector<Element> &elemHost,
             edges[i].ghostInd = ghostInd;
         }
         else if(edges[i].neighbour1_is_ghost && edges[i].right == -1){
-            int ghostInd = bTg_map[edges[i].left] - innerElemCount;
+            int ghostInd = edges[i].left - innerElemCount;
             edges[i].ghostInd = ghostInd;
         }
         else{
@@ -67,12 +67,18 @@ void computeHLLDFluxesGPU(const std::vector<Element> &elemHost,
     int blocks = (M + threadsPerBlock - 1) / threadsPerBlock;      // 10
     kernelComputeHLLD<<<blocks, threadsPerBlock>>>(d_elems, d_ghost_elems, d_edges, d_fluxes, d_unrotated_fluxes, M, gam_hcr); // 11
 
+    cudaError_t err = cudaGetLastError();
+    if(err != cudaSuccess){
+        std::cerr << "Kernel launch failed!\n";
+    }
+    cudaDeviceSynchronize();
     //  4. Копируем результат
     cudaMemcpy(fluxHost.data(), d_fluxes, sizeof(double)*8*M, cudaMemcpyDeviceToHost); // 13
     cudaMemcpy(unrotated_fluxHost.data(), d_unrotated_fluxes, sizeof(double)*8*M, cudaMemcpyDeviceToHost);
 
     //  5. Освобождаем
-    cudaFree(d_elems); cudaFree(d_edges); cudaFree(d_fluxes);
+    cudaFree(d_elems); cudaFree(d_ghost_elems),
+    cudaFree(d_edges); cudaFree(d_fluxes);
     cudaFree(d_unrotated_fluxes);      // 14
 }
 

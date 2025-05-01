@@ -15,10 +15,11 @@ void computeHLLDFluxesGPU(const std::vector<Element> &elemHost,
                           const std::vector<std::vector<double>> &elemUs,
                           const std::vector<std::vector<double>> &ghostElemUs,
                           const int innerElemCount,
-                          unordered_map<int, int> &bTg_map,
+                          unordered_map<int, int> bTg_map,
                           const double gam_hcr,
                           std::vector<double> &fluxHost,
                           std::vector<double> &unrotated_fluxHost);
+
 // Структуры данных (должны совпадать с хостовыми)
 struct GPU_Element {
     double U[8];      // вектор состояния: rho, rho*u, rho*v, Bx, By, Bz, E, psi

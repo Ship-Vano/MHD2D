@@ -6,7 +6,7 @@ __device__ double signum_gpu(double x) {
 }
 
 __device__ double pressure_gpu(const double &gam_hcr, const double &e, const double &rho, const double &u, const double &v, const double &w, const double &Bx, const double &By, const double &Bz){
-    return (gam_hcr - 1) * (e - 0.5 * rho * (u * u + v * v + w * w) - 0.5*(Bx * Bx + By * By + Bz * Bz));
+    return (gam_hcr - 1.0) * (e - 0.5 * rho * (u * u + v * v + w * w) - 0.5*(Bx * Bx + By * By + Bz * Bz));
 }
 
 // Суммарное давление
@@ -30,7 +30,7 @@ __device__ double cfast_gpu(const double *U, const double& gam_hcr) {
     //double p = std::max(pressure(gam_hcr, e, rho, u, v, w, Bx, By, Bz), 1e-15);
     double p = pressure_gpu(gam_hcr, e, rho, u, v, w, Bx, By, Bz);
 
-    double cfast_gpu = std::sqrt((gam_hcr * p + BB + std::sqrt((gam_hcr * p + BB) * (gam_hcr * p + BB) - 4.0 * gam_hcr * p * Bx * Bx)) / (2 * rho));
+    double cfast_gpu = sqrt((gam_hcr * p + BB + sqrt((gam_hcr * p + BB) * (gam_hcr * p + BB) - 4.0 * gam_hcr * p * Bx * Bx)) / (2 * rho));
 
     return cfast_gpu;
 }
@@ -92,7 +92,7 @@ __device__ void compute_HLLD_flux(const double *U_L, const double *U_R, const do
     double cf_L = cfast_gpu(U_L, gam_hcr);
     double cf_R = cfast_gpu(U_R, gam_hcr);
 
-    double Bx = (std::sqrt(rho_L)*Bx_L + std::sqrt(rho_R)*Bx_R) / (std::sqrt(rho_L) + std::sqrt(rho_R));
+    double Bx = (sqrt(rho_L)*Bx_L + sqrt(rho_R)*Bx_R) / (sqrt(rho_L) + sqrt(rho_R));
 
     //скорость левого сигнала, рассчитываемая как минимальное значение скорости левого состояния (uL) и быстрой магнитозвуковой скорости (cfL).
     //double SL = std::min(u_L - cf_L, u_R - cf_R);
@@ -112,17 +112,17 @@ __device__ void compute_HLLD_flux(const double *U_L, const double *U_R, const do
     double SM_m_uL = SM - u_L;
 
     double rho_L_star = rho_L;
-    if(std::abs(SL-SM) > 1e-15) {
+    if(fabs(SL-SM) > 1e-15) {
         rho_L_star = rho_L * SL_m_uL / (SL - SM);
     }
 
     double rho_R_star = rho_R;
-    if(std::abs(SR-SM) > 1e-15){
+    if(fabs(SR-SM) > 1e-15){
         rho_R_star = rho_R * SR_m_uR / (SR - SM);
     }
 
-    double SL_star = SM - std::fabs(Bx)/std::sqrt(rho_L_star);
-    double SR_star = SM + std::fabs(Bx)/std::sqrt(rho_R_star);
+    double SL_star = SM - std::fabs(Bx)/sqrt(rho_L_star);
+    double SR_star = SM + std::fabs(Bx)/sqrt(rho_R_star);
 
     double pT_star = (SR_m_uR * rho_R * pT_L - SL_m_uL * rho_L * pT_R + rho_L * rho_R * SR_m_uR * SL_m_uL * (u_R - u_L)) / den_SM;
 
@@ -134,7 +134,7 @@ __device__ void compute_HLLD_flux(const double *U_L, const double *U_R, const do
     double By_L_star = 0.0;
     double Bz_L_star = 0.0;
     double denom_L = rho_L * SL_m_uL * (SL - SM) - Bx * Bx;
-    if(std::abs(denom_L) > 1e-15){
+    if(fabs(denom_L) > 1e-15){
         pT_L_star = pT_star;
         u_L_star = SM;
         v_L_star = v_L - Bx * By_L * SM_m_uL/denom_L;
@@ -153,7 +153,7 @@ __device__ void compute_HLLD_flux(const double *U_L, const double *U_R, const do
     double By_R_star = 0.0;
     double Bz_R_star = 0.0;
     double denom_R = rho_R * SR_m_uR * (SR - SM) - Bx * Bx;
-    if(std::abs(denom_R) > 1e-15){
+    if(fabs(denom_R) > 1e-15){
         pT_R_star = pT_star;
         u_R_star = SM;
         v_R_star = v_R - Bx * By_R * SM_m_uR/denom_R;
@@ -176,26 +176,26 @@ __device__ void compute_HLLD_flux(const double *U_L, const double *U_R, const do
 //!!!   //F**L
         double u_L_2star = SM;
         double pT_L_2star = pT_L_star;
-        double rho_star_sum_of_sqrts = std::sqrt(rho_L_star)+ std::sqrt(rho_R_star);
+        double rho_star_sum_of_sqrts = sqrt(rho_L_star)+ sqrt(rho_R_star);
         double sign_Bx = signum_gpu(Bx_L);
-        double v_L_2star = (std::sqrt(rho_L_star)*v_L_star + std::sqrt(rho_R_star)*v_R_star + (By_R_star-By_L_star)*sign_Bx)/rho_star_sum_of_sqrts;
-        double w_L_2star = (std::sqrt(rho_L_star)*w_L_star + std::sqrt(rho_R_star)*w_R_star + (Bz_R_star-Bz_L_star)*sign_Bx)/rho_star_sum_of_sqrts;
-        double By_L_2star = (std::sqrt(rho_L_star)*By_R_star + std::sqrt(rho_R_star)*By_L_star + std::sqrt(rho_L_star*rho_R_star)*(v_R_star-v_L_star)*sign_Bx)/rho_star_sum_of_sqrts;
-        double Bz_L_2star = (std::sqrt(rho_L_star)*Bz_R_star + std::sqrt(rho_R_star)*Bz_L_star + std::sqrt(rho_L_star*rho_R_star)*(w_R_star-w_L_star)*sign_Bx)/rho_star_sum_of_sqrts;
-        double e_L_2star = e_L_star - std::sqrt(rho_L_star)*(u_L_star * Bx + v_L_star * By_L_star + w_L_star * Bz_L_star - u_L_2star * Bx - v_L_2star * By_L_2star - w_L_2star * Bz_L_2star)*sign_Bx;
+        double v_L_2star = (sqrt(rho_L_star)*v_L_star + sqrt(rho_R_star)*v_R_star + (By_R_star-By_L_star)*sign_Bx)/rho_star_sum_of_sqrts;
+        double w_L_2star = (sqrt(rho_L_star)*w_L_star + sqrt(rho_R_star)*w_R_star + (Bz_R_star-Bz_L_star)*sign_Bx)/rho_star_sum_of_sqrts;
+        double By_L_2star = (sqrt(rho_L_star)*By_R_star + sqrt(rho_R_star)*By_L_star + sqrt(rho_L_star*rho_R_star)*(v_R_star-v_L_star)*sign_Bx)/rho_star_sum_of_sqrts;
+        double Bz_L_2star = (sqrt(rho_L_star)*Bz_R_star + sqrt(rho_R_star)*Bz_L_star + sqrt(rho_L_star*rho_R_star)*(w_R_star-w_L_star)*sign_Bx)/rho_star_sum_of_sqrts;
+        double e_L_2star = e_L_star - sqrt(rho_L_star)*(u_L_star * Bx + v_L_star * By_L_star + w_L_star * Bz_L_star - u_L_2star * Bx - v_L_2star * By_L_2star - w_L_2star * Bz_L_2star)*sign_Bx;
         compute_MHD_flux(rho_L_star, u_L_2star, v_L_2star, w_L_2star, e_L_2star, Bx, By_L_2star, Bz_L_2star, pT_L_2star, gam_hcr, Fout);
     }
     else if (/*SM <= 0 &&*/ SR_star >= 0.0){
 //!!!   //F**R
         double u_R_2star = SM;
         double pT_R_2star = pT_R_star;
-        double rho_star_sum_of_sqrts = std::sqrt(rho_L_star)+ std::sqrt(rho_R_star);
+        double rho_star_sum_of_sqrts = sqrt(rho_L_star)+ sqrt(rho_R_star);
         double sign_Bx = signum_gpu(Bx_L);
-        double v_R_2star = (std::sqrt(rho_L_star)*v_L_star + std::sqrt(rho_R_star)*v_R_star + (By_R_star-By_L_star)*sign_Bx)/rho_star_sum_of_sqrts;
-        double w_R_2star = (std::sqrt(rho_L_star)*w_L_star + std::sqrt(rho_R_star)*w_R_star + (Bz_R_star-Bz_L_star)*sign_Bx)/rho_star_sum_of_sqrts;
-        double By_R_2star = (std::sqrt(rho_L_star)*By_R_star + std::sqrt(rho_R_star)*By_L_star + std::sqrt(rho_L_star*rho_R_star)*(v_R_star-v_L_star)*sign_Bx)/rho_star_sum_of_sqrts;
-        double Bz_R_2star = (std::sqrt(rho_L_star)*Bz_R_star + std::sqrt(rho_R_star)*Bz_L_star + std::sqrt(rho_L_star*rho_R_star)*(w_R_star-w_L_star)*sign_Bx)/rho_star_sum_of_sqrts;
-        double e_R_2star = e_R_star + std::sqrt(rho_R_star)*(u_R_star * Bx + v_R_star * By_R_star + w_R_star * Bz_R_star - u_R_2star * Bx - v_R_2star * By_R_2star - w_R_2star * Bz_R_2star)*sign_Bx;
+        double v_R_2star = (sqrt(rho_L_star)*v_L_star + sqrt(rho_R_star)*v_R_star + (By_R_star-By_L_star)*sign_Bx)/rho_star_sum_of_sqrts;
+        double w_R_2star = (sqrt(rho_L_star)*w_L_star + sqrt(rho_R_star)*w_R_star + (Bz_R_star-Bz_L_star)*sign_Bx)/rho_star_sum_of_sqrts;
+        double By_R_2star = (sqrt(rho_L_star)*By_R_star + sqrt(rho_R_star)*By_L_star + sqrt(rho_L_star*rho_R_star)*(v_R_star-v_L_star)*sign_Bx)/rho_star_sum_of_sqrts;
+        double Bz_R_2star = (sqrt(rho_L_star)*Bz_R_star + sqrt(rho_R_star)*Bz_L_star + sqrt(rho_L_star*rho_R_star)*(w_R_star-w_L_star)*sign_Bx)/rho_star_sum_of_sqrts;
+        double e_R_2star = e_R_star + sqrt(rho_R_star)*(u_R_star * Bx + v_R_star * By_R_star + w_R_star * Bz_R_star - u_R_2star * Bx - v_R_2star * By_R_2star - w_R_2star * Bz_R_2star)*sign_Bx;
         compute_MHD_flux(rho_R_star, u_R_2star, v_R_2star, w_R_2star, e_R_2star, Bx, By_R_2star, Bz_R_2star, pT_R_2star, gam_hcr, Fout);
     }
     else if (/*SR_star <= 0 &&*/ SR >= 0.0){
