@@ -29,6 +29,7 @@ public:
     int task_type = 1; // тип задачи
     bool periodicBoundaries = false; // флаг: периодические г.у.
     bool freeFLowBoundaries = false; // флаг: г.у. на свободный поток на границе
+    bool freeFLowBoundaries2 = false; // флаг: г.у. на свободный поток на границе 2-го типа (граничные ячейки - четырёхугольники)
     bool debugDivergence = false;
     int innerElemCount = 0;
     int innerEdgeCount = 0;
@@ -57,8 +58,13 @@ public:
 
     void setInitCylindricElemUs();
     void runCylindricSolver();
+    void applyBoundaryConditions(NeighbourService& ns);
+    void applyGhostCells2Type();
+    void applyZeroRConditions(ElementPool& elPool, EdgePool& edgePool, NodePool& nodePool);
 
     double computeDivergence();
+    void checkNan(bool& foundNan);
+
     // Начальное состояние системы
     std::function<std::vector<double>(double)> initStateFunc;
     bool initStateFunc_is_set = false;
@@ -73,6 +79,8 @@ public:
     std::vector<double> applyLimiter(const std::vector<double>& U_left, const std::vector<double>& U_center, const std::vector<double>& U_right);
     MHDSolver2D(const World& world);
     void writeVTU(const std::string& filename, const bool& ghost);
+
+    void runGPUSolver();
 };
 
 //void writeVTU(const std::string& filename, const World& geometryWorld, const std::vector<std::vector<double>>& elemUs);
