@@ -168,6 +168,7 @@ void MHDSolver2D::setInitElemUs() {
     std::cout << "Element count = " << ep.elCount << " ; innerElCount = " << innerElemCount << " ; ghostElCOunt = " << geometryWorld.ghostElemCount << std::endl;
     EdgePool edgp = geometryWorld.getEdgePool();
     innerEdgeCount = edgp.edgeCount - geometryWorld.ghostElemCount * 2;
+    NodePool np = geometryWorld.getNodePool();
 
     // Brio-Wu problem
     if(task_type == 1) {
@@ -603,13 +604,117 @@ void MHDSolver2D::setInitElemUs() {
             initEdgeUs[edgeInd] = state;
         }
     }
-    else if(task_type == 8){
-        std::cout << "SOLVING TASKTYPE 8: Linear 2d wave" << std::endl;
-        double rho = 25.0 / (36.0 * std::numbers::pi_v<double>);
-        double p = 5.0 / (12.0 * std::numbers::pi_v<double>);
+    /*тесты Athena*/
+    else if(task_type == 9){
+        std::cout << "SOLVING TASKTYPE 9: The Magnetic Field Loop Test" << std::endl;
+        double rho = 1.0;
+        double p = 1.0;
         gam_hcr = 5.0/3.0;
-        finalTime = 0.5;
-        cflNum = 0.5;
+        finalTime = 2.0;
+        cflNum = 0.1;
+        periodicBoundaries = true;
+        freeFLowBoundaries = false;
+        freeFLowBoundaries2 = false;
+        initElemUs.resize(innerElemCount, std::vector<double>(8, 0.0));
+        initEdgeUs.resize(edgp.edgeCount, std::vector<double>(8, 0.0));
+        initBns.resize(edgp.edgeCount, 0.0);
+        initGhostElemUs.resize(geometryWorld.ghostElemCount, std::vector<double>(8, 0.0));
+        initGhostBNs.resize(geometryWorld.ghostElemCount*2, 0.0);
+        double R0 = 0.3;  // Радиус петли
+        double A = 1.0e-3;   // Амплитуда
+        double xc = 0.0, yc = 0.0;  // Центр петли
+        std::vector<double> AzField(np.nodeCount, 0.0);
+        for (auto& node : np.nodes) {
+            double dx = node.x - xc;
+            double dy = node.y - yc;
+            double r = std::sqrt(dx*dx + dy*dy);
+            AzField[node.ind] = (r <= R0) ? A * (R0 - r) : 0.0;
+        }
+        // сначала рёбра:
+        for(int i = 0; i < edgp.edgeCount; ++i){
+            Edge edge = edgp.edges[i];
+            Node& node1 = np.nodes[edge.nodeInd1];
+            Node& node2 = np.nodes[edge.nodeInd2];
+            double Az1 = AzField[node1.ind];
+            double Az2 = AzField[node2.ind];
+            double Bn = (Az2-Az1)/edge.length;
+            initBns[edge.ind] = Bn;
+            if(i < innerEdgeCount) {
+                initBns[edge.ind] = Bn;
+            }
+            else{
+                initGhostBNs[edge.ind - innerEdgeCount] = Bn;
+            }
+        }
+        for (int i = 0; i < innerElemCount; ++i) {
+            Element elem = ep.elements[i];
+            std::vector<double> centroid = elem.centroid2D;
+            double x = centroid[0];
+            double y = centroid[1];
+            double u = std::sin(std::numbers::pi_v<double>/3.0);
+            double v = std::cos(std::numbers::pi_v<double>/3.0);
+            double w = 0.0;
+            double Bz = 0.0;
+            double Bx = 0.0;
+            double By = 0.0;
+            double temp_sum_Bx = 0.0;
+            double temp_sum_By = 0.0;
+            for (const auto &edgeInd: elem.edgeIndexes) {
+                Edge edge = edgp.edges[edgeInd];
+                if (edge.neighbourInd1 == elem.ind) {
+                    // у первого соседа в эдже заданы ноды в порядке положительного обхода и нормаль тоже
+                    const auto nodeInElemInd = std::find(elem.nodeIndexes.begin(), elem.nodeIndexes.end(),
+                                                         edge.nodeInd1);
+                    int node_before_ind =
+                            nodeInElemInd == elem.nodeIndexes.begin() ? elem.nodeIndexes[elem.dim - 1] : *(
+                                    nodeInElemInd - 1);
+                    //std::cout << "edge of nodes = {"<< edge.nodeInd1 << " , " << edge.nodeInd2 << " } current ind = " << edge.nodeInd1 <<" Elem's node indexes: " << elem.nodeIndexes[0] << " "<< elem.nodeIndexes[1] << " "<< elem.nodeIndexes[2] << ", node_beforeInd = " << node_before_ind << std::endl;
+                    //std::cin.get();
+                    Node node_before = np.getNode(node_before_ind);
+                    if(edgeInd < innerEdgeCount) {
+                        Bx += initBns[edgeInd] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
+                        By += initBns[edgeInd] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                    }
+                    else{
+                        continue;
+                        Bx += initGhostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
+                        By += initGhostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                    }
+                } else if(edge.neighbourInd2 != -1){
+                    // а вот для второго нужно умножать на -1 и в обратном порядке
+                    const auto nodeInElemInd = std::find(elem.nodeIndexes.begin(), elem.nodeIndexes.end(),
+                                                         edge.nodeInd2);
+                    int node_before_ind =
+                            nodeInElemInd == elem.nodeIndexes.begin() ? elem.nodeIndexes[elem.dim - 1] : *(
+                                    nodeInElemInd - 1);
+                    Node node_before = np.getNode(node_before_ind);
+                    if(edgeInd < innerEdgeCount) {
+                        Bx -= initBns[edgeInd] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
+                        By -= initBns[edgeInd] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                    }
+                    else{
+                        continue;
+                        Bx -= initGhostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
+                        By -= initGhostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                    }
+                }
+            }
+            initElemUs[elem.ind] = state_from_primitive_vars2D(rho, u, v, w, p, Bx, By, Bz, gam_hcr);
+        }
+        NeighbourService ns = geometryWorld.getNeighbourService();
+        for(const auto& [boundary, ghost]: ns.boundaryToGhostElements){
+            int ghostInd = ghost - innerElemCount;
+            initGhostElemUs[ghostInd] =  initElemUs[boundary];
+        }
+    }
+    else if(task_type == 8){
+        std::cout << "SOLVING TASKTYPE 8: The Circular Polarized Alfven Wave Test " << std::endl;
+        double rho = 1.0;
+        double p = 0.1;
+        gam_hcr = 5.0/3.0;
+        finalTime = 1.0;
+        cflNum = 0.1;
+        double alpha = std::numbers::pi_v<double>/6.0; //The wave propagates along the diagonal of the grid, at an angle θ = tan-1(0.5) ≈ 26.6 degrees with respect to the x-axis
         periodicBoundaries = true;
         initElemUs.resize(innerElemCount, std::vector<double>(8, 0.0));
         initEdgeUs.resize(edgp.edgeCount, std::vector<double>(8, 0.0));
@@ -620,12 +725,17 @@ void MHDSolver2D::setInitElemUs() {
             std::vector<double> centroid = elem.centroid2D;
             double x = centroid[0];
             double y = centroid[1];
-            double u = (-1) * std::sin(2.0 * std::numbers::pi_v<double> * y) ;
-            double v = std::sin(2.0 * std::numbers::pi_v<double> * x);
-            double w = 0.0;
-            double Bx = (-1) * std::sin(2.0 * std::numbers::pi_v<double>  * y)/ (std::sqrt(4.0 * std::numbers::pi_v<double>));
-            double By = std::sin(4.0 * std::numbers::pi_v<double> * x)/ (std::sqrt(4.0 * std::numbers::pi_v<double>));
-            double Bz = 0.0;
+            double x_par = x * std::cos(alpha) + y * std::sin(alpha);
+            double v_perp = 0.1 * std::sin(2.0 * std::numbers::pi_v<double> * x_par);
+            double v_par = 0.0;
+            double B_perp = 0.1 * std::sin(2.0 * std::numbers::pi_v<double> * x_par);
+            double B_par = 1.0;
+            double u = v_par * std::cos(alpha) - v_perp * std::sin(alpha);
+            double v = v_perp * std::cos(alpha) + v_par * std::sin(alpha);
+            double w = 0.1 * std::cos(2.0 * std::numbers::pi_v<double> * x_par);
+            double Bz = 0.1 * std::cos(2.0 * std::numbers::pi_v<double> * x_par);
+            double Bx = B_par * std::cos(alpha) - B_perp * std::sin(alpha);
+            double By = B_perp * std::cos(alpha) + B_par * std::sin(alpha);
             initElemUs[elem.ind] = state_from_primitive_vars2D(rho, u, v, w, p, Bx, By, Bz, gam_hcr);
         }
         NeighbourService ns = geometryWorld.getNeighbourService();
@@ -638,8 +748,11 @@ void MHDSolver2D::setInitElemUs() {
             Edge edge = edgp.edges[i];
             double x = edge.midPoint[0];
             double y = edge.midPoint[1];
-            double Bx = (-1) * std::sin(2.0 * std::numbers::pi_v<double>  * y)/ (std::sqrt(4.0 * std::numbers::pi_v<double>));
-            double By = std::sin(4.0 * std::numbers::pi_v<double> * x)/ (std::sqrt(4.0 * std::numbers::pi_v<double>));
+            double x_par = x * std::cos(alpha) + y * std::sin(alpha);
+            double B_perp = 0.1 * std::sin(2.0 * std::numbers::pi_v<double> * x_par);
+            double B_par = 1.0;
+            double Bx = B_par * std::cos(alpha) - B_perp * std::sin(alpha);
+            double By = B_perp * std::cos(alpha) + B_par * std::sin(alpha);
             double Bn = Bx * edge.normalVector[0] +  By * edge.normalVector[1];
             initBns[edge.ind] = Bn;
             if(i < innerEdgeCount) {
