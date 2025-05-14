@@ -651,8 +651,8 @@ void MHDSolver2D::setInitElemUs() {
             std::vector<double> centroid = elem.centroid2D;
             double x = centroid[0];
             double y = centroid[1];
-            double u = std::sin(std::numbers::pi_v<double>/3.0);
-            double v = std::cos(std::numbers::pi_v<double>/3.0);
+            double u = 2.0;//std::sin(std::numbers::pi_v<double>/3.0);
+            double v = 1.0;//std::cos(std::numbers::pi_v<double>/3.0);
             double w = 0.0;
             double Bz = 0.0;
             double Bx = 0.0;

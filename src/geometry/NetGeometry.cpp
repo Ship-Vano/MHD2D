@@ -453,7 +453,7 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
 
         std::cout << "Creating node and element pools..." << std::endl;
         np = NodePool(nodes.size(), nodes);
-        ep = ElementPool(nodes[0].ind, elements.size(), elements); // предполагаем, что вс элементы имеют одинаковую размерность
+        ep = ElementPool(elements[0].dim, elements.size(), elements); // предполагаем, что вс элементы имеют одинаковую размерность
 
         // вычисляем площади и центры для элементов
         for (int i = 0; i < ep.elCount; ++i) {

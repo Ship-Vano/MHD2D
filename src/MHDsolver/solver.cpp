@@ -43,11 +43,21 @@ int main(){
 
     bool cylindrical= json_root.get("cylindrical", false).asBool();
     bool gpu = json_root.get("gpu", false).asBool();
+
     if(cylindrical){
         solver.runCylindricSolver();
     }
     else if(gpu){
+        float time;
+        cudaEvent_t start, stop;
+        cudaEventCreate(&start);
+        cudaEventCreate(&stop);
+        cudaEventRecord(start, 0);
         solver.runGPUSolver();
+        cudaEventRecord(stop, 0);
+        cudaEventSynchronize(stop);
+        cudaEventElapsedTime(&time, start, stop);
+        std::cout << "Time to generate: " << time <<  " ms \n";
     }
     else{
         solver.runSolver();

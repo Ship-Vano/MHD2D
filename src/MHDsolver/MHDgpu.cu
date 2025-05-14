@@ -77,9 +77,11 @@ void computeHLLDFluxesGPU(const std::vector<Element> &elemHost,
     cudaMemcpy(unrotated_fluxHost.data(), d_unrotated_fluxes, sizeof(double)*8*M, cudaMemcpyDeviceToHost);
 
     //  5. Освобождаем
-    cudaFree(d_elems); cudaFree(d_ghost_elems),
-    cudaFree(d_edges); cudaFree(d_fluxes);
-    cudaFree(d_unrotated_fluxes);      // 14
+    cudaFree(d_elems);
+    cudaFree(d_ghost_elems),
+    cudaFree(d_edges);
+    cudaFree(d_fluxes);
+    cudaFree(d_unrotated_fluxes);
 }
 
 // CUDA-ядро: вычисление HLLD-потоков для каждого ребра
