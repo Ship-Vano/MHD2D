@@ -49,8 +49,8 @@ public:
     std::vector<double> initGhostBNs; // state U in ghost elements (X_x)
     std::vector<double> ghostBNs; //Bns at ghost edges
 
-    std::vector<double> rotateStateFromNormalToAxisX(std::vector<double>& U, const std::vector<double>& n);
-    std::vector<double> rotateStateFromAxisToNormal(std::vector<double>& U, const std::vector<double>& n);
+    std::vector<double> rotateStateFromNormalToAxisX(vector<double> &U, const Vec2 &n);
+    std::vector<double> rotateStateFromAxisToNormal(std::vector<double>& U, const Vec2 &n);
     double tau_from_cfl2D(const double& sigma, const double& hx, const std::vector<std::vector<double>>& states, const double& gam_hcr);
     double tau_from_cfl2D(const double& sigma, const double& min_h, std::vector<std::vector<double>>& edgeStates, const double& gam_hcr,
                           const EdgePool& ep);

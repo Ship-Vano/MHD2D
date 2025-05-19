@@ -6,6 +6,7 @@
 #define MAGNETTOPRJCT_NETGEOMETRY_H
 
 #include "NamesNConstants.h"
+#include "utility/utility.h"
 #include "service/LinOp.h"
 #include <omp.h>
 #include <vector>
@@ -25,11 +26,9 @@
 class Node {
 public:
     int ind; // порядковый номер
-    double x;
-    double y;
-    double z;
+    Vec3 pos;
     bool is_ghost = false;
-    Node() : ind(0), x(0.0), y(0.0), z(0.0) {}
+    Node() : ind(0), pos{0.0, 0.0, 0.0} {}
     Node(int index, double xCoord, double yCoord, double zCoord);
 };
 
@@ -43,13 +42,13 @@ public:
     int neighbourInd2; //номер второго соседнего элемента
     double length;  // длина
     bool is_ghost = false;
-    std::vector<double> normalVector; // компоненты вектора нормали
-    std::vector<double> midPoint; // центр ребра
+    Vec2 normalVector; // компоненты вектора нормали
+    Vec2 midPoint; // центр ребра
     Edge(): ind(0), nodeInd1(0), nodeInd2(0),
               neighbourInd1(-1), neighbourInd2(-1), length(0.0),
-              normalVector(2, 0.0), midPoint(2, 0.0) {}
+              normalVector{0.0, 0.0}, midPoint{0.0, 0.0} {}
     Edge(int index, int node1, int node2, int neighbor1, int neighbor2,
-         double len, const std::vector<double>& normalVec, const std::vector<double>& midPoint);
+         double len, const Vec2 &normalVec, const Vec2 &midPoint);
 };
 
 // Элемент
@@ -59,11 +58,11 @@ public:
     int dim; // размерность (кол-во узлов)
     std::vector<int> nodeIndexes; //номера узлов
     std::vector<int> edgeIndexes; //номера рёбер
-    std::vector<double> centroid2D; // центр элемента
+    Vec2 centroid2D; // центр элемента
     bool is_boundary = false;
     bool is_ghost = false;
     double area = 0.0; //площадь
-    Element() : ind(0), dim(0), area(0.0), centroid2D(2, 0.0) {}
+    Element() : ind(0), dim(0), area(0.0), centroid2D{0.0, 0.0} {}
     Element(const int index, const std::vector<int> &nIndexes, int size);
 };
 
@@ -174,10 +173,10 @@ public:
 
 double areaCalc(const Element& poly, const NodePool& nPool); // подсчёт площади элемента
 
-std::vector<double> getElementCentroid2D(const Element& poly, const NodePool& nPool); // подсчёт середины элемента
-std::vector<double> getElementCentroid2D(const std::vector<Node> &nodes);
+Vec2 getElementCentroid2D(const Element& poly, const NodePool& nPool); // подсчёт середины элемента
+Vec2 getElementCentroid2D(const std::vector<Node> &nodes);
 
-std::vector<double> getMidPoint2D(const int nodeInd1, const int nodeInd2, const NodePool& nPool); // подсчёт середины отрезка, соединяющего два узла
+Vec2 getMidPoint2D(const int nodeInd1, const int nodeInd2, const NodePool& nPool); // подсчёт середины отрезка, соединяющего два узла
 
 double getDistance(const int nodeInd1, const int nodeInd2, const NodePool& nPool); // подсчёт расстояния между двумя узлами
 

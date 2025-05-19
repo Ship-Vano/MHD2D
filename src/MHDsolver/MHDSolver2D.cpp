@@ -74,17 +74,17 @@ std::vector<double> MHDSolver2D::applyLimiter(const std::vector<double>& U_left,
 }
 
 /*вращения*/
-// n = {cos(j), sin(j)} = {n.x, n.y}
+// n = {cos(j), sin(j)} = {n.pos.x, n.pos.y}
 
 // ({cos(j), sin(j), 0}, {-sin(j), cos(j), 0}, {0,0,1}) --- around OZ clockwise
-// rotate 1: from normal to OX:      {v.x * n.x + vy * n.y, - v.x * n.y + v.y * n.x, v.z}
+// rotate 1: from normal to OX:      {v.pos.x * n.pos.x + vy * n.pos.y, - v.pos.x * n.pos.y + v.pos.y * n.pos.x, v.z}
 // вращаем {u,v,w} и {Bx, By, Bz}, остальные остаются на месте
-std::vector<double> MHDSolver2D::rotateStateFromAxisToNormal(std::vector<double> &U, const std::vector<double>& n) {
+std::vector<double> MHDSolver2D::rotateStateFromAxisToNormal(std::vector<double> &U, const Vec2 &n) {
     std::vector<double> res(U);
-    res[1] =  U[1]*n[0] + U[2]*n[1];
-    res[2] = -U[1]*n[1] + U[2]*n[0];
-    res[5] =  U[5]*n[0] + U[6]*n[1];
-    res[6] = -U[5]*n[1] + U[6]*n[0];
+    res[1] =  U[1]*n.x + U[2]*n.y;
+    res[2] = -U[1]*n.y + U[2]*n.x;
+    res[5] =  U[5]*n.x + U[6]*n.y;
+    res[6] = -U[5]*n.y + U[6]*n.x;
 
     /*double vel0 = std::sqrt(U[1] * U[1] + U[2] * U[2] + U[3] * U[3]);
     double vel1 = std::sqrt(res[1] * res[1] + res[2] * res[2] + res[3] * res[3]);
@@ -109,13 +109,13 @@ std::vector<double> MHDSolver2D::rotateStateFromAxisToNormal(std::vector<double>
 }
 
 // ({cos(j), -sin(j), 0}, {sin(j), cos(j), 0}, {0,0,1}) --- around OZ counterclockwise
-// rotate 2: from OX to normal:      {v.x * n.x - vy * n.y,  v.x * n.y + v.y * n.x, v.z}
-std::vector<double> MHDSolver2D::rotateStateFromNormalToAxisX(vector<double> &U, const vector<double>& n) {
+// rotate 2: from OX to normal:      {v.pos.x * n.pos.x - vy * n.pos.y,  v.pos.x * n.pos.y + v.pos.y * n.pos.x, v.z}
+std::vector<double> MHDSolver2D::rotateStateFromNormalToAxisX(vector<double> &U, const Vec2 &n) {
     std::vector<double> res(U);
-    res[1] =  U[1]*n[0] - U[2]*n[1];
-    res[2] =  U[1]*n[1] + U[2]*n[0];
-    res[5] =  U[5]*n[0] - U[6]*n[1];
-    res[6] =  U[5]*n[1] + U[6]*n[0];
+    res[1] =  U[1]*n.x - U[2]*n.y;
+    res[2] =  U[1]*n.y + U[2]*n.x;
+    res[5] =  U[5]*n.x - U[6]*n.y;
+    res[6] =  U[5]*n.y + U[6]*n.x;
     //double p = pressure(res, gam_hcr);
     //double energy_rotated = energy(gam_hcr, p, res[0], res[1]/res[0], res[2]/res[0], res[3]/res[0], res[5], res[6], res[7]);
     //res[4] = energy_rotated;
@@ -183,9 +183,9 @@ void MHDSolver2D::setInitElemUs() {
         initElemUs.resize(innerElemCount, std::vector<double>(8, 0.0));
         for (int i = 0; i < innerElemCount; ++i) {
             Element elem = ep.elements[i];
-            std::vector<double> centroid = elem.centroid2D;
+            Vec2 centroid = elem.centroid2D;
             int elInd = elem.ind;
-            if (centroid[0] < 0.5) {
+            if (centroid.x < 0.5) {
                 initElemUs[elInd] = state_from_primitive_vars(BrioWu_L1);
             } else {
                 initElemUs[elInd] = state_from_primitive_vars(BrioWu_R1);
@@ -195,10 +195,10 @@ void MHDSolver2D::setInitElemUs() {
         initGhostElemUs.resize(geometryWorld.ghostElemCount, std::vector<double>(8, 0.0));
         for(int i = innerElemCount; i < ep.elCount; ++i ){
             Element elem = ep.elements[i];
-            std::vector<double> centroid = elem.centroid2D;
+            Vec2 centroid = elem.centroid2D;
             int elInd = elem.ind;
             int ghostInd = elInd - innerElemCount;
-            if (centroid[0] < 0.5) {
+            if (centroid.x < 0.5) {
                 initGhostElemUs[ghostInd] = state_from_primitive_vars(BrioWu_L1);
             } else {
                 initGhostElemUs[ghostInd] = state_from_primitive_vars(BrioWu_R1);
@@ -210,16 +210,16 @@ void MHDSolver2D::setInitElemUs() {
         initEdgeUs.resize(edgp.edgeCount, std::vector<double>(8, 0.0));
         for (int i = 0; i < edgp.edgeCount; ++i) {
             Edge edge = edgp.edges[i];
-            std::vector<double> midP = edge.midPoint;
+            Vec2 midP = edge.midPoint;
             int edgeInd = edge.ind;
-            std::vector<double> normal = edge.normalVector;
+            Vec2 normal = edge.normalVector;
             std::vector<double> state;
-            if (midP[0] < 0.5) {
+            if (midP.x < 0.5) {
                 state = state_from_primitive_vars(BrioWu_L1);
             } else {
                 state = state_from_primitive_vars(BrioWu_R1);
             }
-            double Bn = state[5] * normal[0] + state[6] * normal[1];
+            double Bn = state[5] * normal.x + state[6] * normal.y;
             initBns[edgeInd] = Bn;
             if(i < innerEdgeCount) {
                 initBns[edgeInd] = Bn;
@@ -256,9 +256,9 @@ void MHDSolver2D::setInitElemUs() {
         initGhostElemUs.resize(geometryWorld.ghostElemCount, std::vector<double>(8, 0.0));
         for (int i = 0; i < ep.elCount; ++i) {
             Element elem = ep.elements[i];
-            std::vector<double> centroid = elem.centroid2D;
-            double x = centroid[0];
-            double y = centroid[1];
+            Vec2 centroid = elem.centroid2D;
+            double x = centroid.x;
+            double y = centroid.y;
             double phase = 2.0 * std::numbers::pi_v<double> / ny * (nx * x + ny * y);
             double u_0 = v0 * nx - xi * ny * std::cos(phase);
             double v_0 = v0 * ny + xi * nx * std::cos(phase);
@@ -282,8 +282,8 @@ void MHDSolver2D::setInitElemUs() {
         initGhostBNs.resize(geometryWorld.ghostElemCount*2, 0.0);
         for(int i = 0; i < edgp.edgeCount; ++i){
             Edge edge = edgp.edges[i];
-            double x = edge.midPoint[0];
-            double y = edge.midPoint[1];
+            double x = edge.midPoint.x;
+            double y = edge.midPoint.y;
             double phase = 2.0 * std::numbers::pi_v<double> / ny * (nx * x + ny * y);
             double u_0 = v0 * nx - xi * ny * std::cos(phase);
             double v_0 = v0 * ny + xi * nx * std::cos(phase);
@@ -291,7 +291,7 @@ void MHDSolver2D::setInitElemUs() {
             double Bx_0 = B0 * nx + xi * ny * std::sqrt(4 * std::numbers::pi_v<double> * rho0) * std::cos(phase);
             double By_0 = B0 * ny - xi * nx * std::sqrt(4 * std::numbers::pi_v<double> * rho0) * std::cos(phase);
             double Bz_0 = - xi * std::sqrt(4 * std::numbers::pi_v<double> * rho0) * std::sin(phase);
-            double Bn = Bx_0 * edge.normalVector[0] + By_0 * edge.normalVector[1];
+            double Bn = Bx_0 * edge.normalVector.x + By_0 * edge.normalVector.y;
             initBns[edge.ind] = Bn;
             if(i < innerEdgeCount) {
                 initBns[edge.ind] = Bn;
@@ -318,9 +318,9 @@ void MHDSolver2D::setInitElemUs() {
         initGhostElemUs.resize(geometryWorld.ghostElemCount, std::vector<double>(8, 0.0));
         for (int i = 0; i < ep.elCount; ++i) {
             Element elem = ep.elements[i];
-            std::vector<double> centroid = elem.centroid2D;
-            double x = centroid[0];
-            double y = centroid[1];
+            Vec2 centroid = elem.centroid2D;
+            double x = centroid.x;
+            double y = centroid.y;
             double u_0 = v0;
             double v_0 = v0;
             double w_0 = 0.0;
@@ -378,7 +378,7 @@ void MHDSolver2D::setInitElemUs() {
             double Bx_0 = B0;
             double By_0 = B0 ;
             double Bz_0 = B0;
-            double Bn = Bx_0 * edge.normalVector[0] + By_0 * edge.normalVector[1];
+            double Bn = Bx_0 * edge.normalVector.x + By_0 * edge.normalVector.y;
             initBns[edge.ind] = Bn;
             if(i < innerEdgeCount) {
                 initBns[edge.ind] = Bn;
@@ -406,9 +406,9 @@ void MHDSolver2D::setInitElemUs() {
         initGhostElemUs.resize(geometryWorld.ghostElemCount, std::vector<double>(8, 0.0));
         for (int i = 0; i < innerElemCount; ++i) {
             Element elem = ep.elements[i];
-            std::vector<double> centroid = elem.centroid2D;
-            double x = centroid[0];
-            double y = centroid[1];
+            Vec2 centroid = elem.centroid2D;
+            double x = centroid.x;
+            double y = centroid.y;
             double r = std::sqrt((x - 0.5) * (x - 0.5) + (y - 0.5) * (y - 0.5));
             if(r < r0){
                 initElemUs[elem.ind] = state_from_primitive_vars2D(10.0, -v0*(y-0.5)/r0, v0*(x-0.5)/r0, 0.0, p, Bx, 0.0, 0.0, gam_hcr);
@@ -428,7 +428,7 @@ void MHDSolver2D::setInitElemUs() {
         initGhostBNs.resize(geometryWorld.ghostElemCount*2, 0.0);
         for(int i = 0; i < edgp.edgeCount; ++i){
             Edge edge = edgp.edges[i];
-            double Bn = Bx * edge.normalVector[0] +  0.0 * edge.normalVector[1];
+            double Bn = Bx * edge.normalVector.x +  0.0 * edge.normalVector.y;
             initBns[edge.ind] = Bn;
             if(i < innerEdgeCount) {
                 initBns[edge.ind] = Bn;
@@ -452,9 +452,9 @@ void MHDSolver2D::setInitElemUs() {
         initGhostElemUs.resize(geometryWorld.ghostElemCount, std::vector<double>(8, 0.0));
         for (int i = 0; i < innerElemCount; ++i) {
             Element elem = ep.elements[i];
-            std::vector<double> centroid = elem.centroid2D;
-            double x = centroid[0];
-            double y = centroid[1];
+            Vec2 centroid = elem.centroid2D;
+            double x = centroid.x;
+            double y = centroid.y;
             double u = (-1) * std::sin(2.0 * std::numbers::pi_v<double> * y) ;
             double v = std::sin(2.0 * std::numbers::pi_v<double> * x);
             double w = 0.0;
@@ -471,11 +471,11 @@ void MHDSolver2D::setInitElemUs() {
         initGhostBNs.resize(geometryWorld.ghostElemCount*2, 0.0);
         for(int i = 0; i < edgp.edgeCount; ++i){
             Edge edge = edgp.edges[i];
-            double x = edge.midPoint[0];
-            double y = edge.midPoint[1];
+            double x = edge.midPoint.x;
+            double y = edge.midPoint.y;
             double Bx = (-1) * std::sin(2.0 * std::numbers::pi_v<double>  * y)/ (std::sqrt(4.0 * std::numbers::pi_v<double>));
             double By = std::sin(4.0 * std::numbers::pi_v<double> * x)/ (std::sqrt(4.0 * std::numbers::pi_v<double>));
-            double Bn = Bx * edge.normalVector[0] +  By * edge.normalVector[1];
+            double Bn = Bx * edge.normalVector.x +  By * edge.normalVector.y;
             initBns[edge.ind] = Bn;
             if(i < innerEdgeCount) {
                 initBns[edge.ind] = Bn;
@@ -497,9 +497,9 @@ void MHDSolver2D::setInitElemUs() {
         initElemUs.resize(innerElemCount, std::vector<double>(8, 0.0));
         for (int i = 0; i < innerElemCount; ++i) {
             Element elem = ep.elements[i];
-            std::vector<double> centroid = elem.centroid2D;
+            Vec2 centroid = elem.centroid2D;
             int elInd = elem.ind;
-            if (centroid[1] < 0.5) {
+            if (centroid.y < 0.5) {
                 initElemUs[elInd] = state_from_primitive_vars(BrioWu_L1);
             } else {
                 initElemUs[elInd] = state_from_primitive_vars(BrioWu_R1);
@@ -509,10 +509,10 @@ void MHDSolver2D::setInitElemUs() {
         initGhostElemUs.resize(geometryWorld.ghostElemCount, std::vector<double>(8, 0.0));
         for(int i = innerElemCount; i < ep.elCount; ++i ){
             Element elem = ep.elements[i];
-            std::vector<double> centroid = elem.centroid2D;
+            Vec2 centroid = elem.centroid2D;
             int elInd = elem.ind;
             int ghostInd = elInd - innerElemCount;
-            if (centroid[1] < 0.5) {
+            if (centroid.y < 0.5) {
                 initGhostElemUs[ghostInd] = state_from_primitive_vars(BrioWu_L1);
             } else {
                 initGhostElemUs[ghostInd] = state_from_primitive_vars(BrioWu_R1);
@@ -524,16 +524,16 @@ void MHDSolver2D::setInitElemUs() {
         initEdgeUs.resize(edgp.edgeCount, std::vector<double>(8, 0.0));
         for (int i = 0; i < edgp.edgeCount; ++i) {
             Edge edge = edgp.edges[i];
-            std::vector<double> midP = edge.midPoint;
+            Vec2 midP = edge.midPoint;
             int edgeInd = edge.ind;
-            std::vector<double> normal = edge.normalVector;
+            Vec2 normal = edge.normalVector;
             std::vector<double> state;
-            if (midP[1] < 0.5) {
+            if (midP.y < 0.5) {
                 state = state_from_primitive_vars(BrioWu_L1);
             } else {
                 state = state_from_primitive_vars(BrioWu_R1);
             }
-            double Bn = state[5] * normal[0] + state[6] * normal[1];
+            double Bn = state[5] * normal.x + state[6] * normal.y;
             initBns[edgeInd] = Bn;
             if(i < innerEdgeCount) {
                 initBns[edgeInd] = Bn;
@@ -557,9 +557,9 @@ void MHDSolver2D::setInitElemUs() {
         initElemUs.resize(innerElemCount, std::vector<double>(8, 0.0));
         for (int i = 0; i < innerElemCount; ++i) {
             Element elem = ep.elements[i];
-            std::vector<double> centroid = elem.centroid2D;
+            Vec2 centroid = elem.centroid2D;
             int elInd = elem.ind;
-            if (centroid[0] < 0.5) {
+            if (centroid.x < 0.5) {
                 initElemUs[elInd] = state_from_primitive_vars(BrioWu_L1);
             } else {
                 initElemUs[elInd] = state_from_primitive_vars(BrioWu_R1);
@@ -569,10 +569,10 @@ void MHDSolver2D::setInitElemUs() {
         initGhostElemUs.resize(geometryWorld.ghostElemCount, std::vector<double>(8, 0.0));
         for(int i = innerElemCount; i < ep.elCount; ++i ){
             Element elem = ep.elements[i];
-            std::vector<double> centroid = elem.centroid2D;
+            Vec2 centroid = elem.centroid2D;
             int elInd = elem.ind;
             int ghostInd = elInd - innerElemCount;
-            if (centroid[0] < 0.5) {
+            if (centroid.x < 0.5) {
                 initGhostElemUs[ghostInd] = state_from_primitive_vars(BrioWu_L1);
             } else {
                 initGhostElemUs[ghostInd] = state_from_primitive_vars(BrioWu_R1);
@@ -584,16 +584,16 @@ void MHDSolver2D::setInitElemUs() {
         initEdgeUs.resize(edgp.edgeCount, std::vector<double>(8, 0.0));
         for (int i = 0; i < edgp.edgeCount; ++i) {
             Edge edge = edgp.edges[i];
-            std::vector<double> midP = edge.midPoint;
+            Vec2 midP = edge.midPoint;
             int edgeInd = edge.ind;
-            std::vector<double> normal = edge.normalVector;
+            Vec2  normal = edge.normalVector;
             std::vector<double> state;
-            if (midP[0] < 0.5) {
+            if (midP.x < 0.5) {
                 state = state_from_primitive_vars(BrioWu_L1);
             } else {
                 state = state_from_primitive_vars(BrioWu_R1);
             }
-            double Bn = state[5] * normal[0] + state[6] * normal[1];
+            double Bn = state[5] * normal.x + state[6] * normal.y;
             initBns[edgeInd] = Bn;
             if(i < innerEdgeCount) {
                 initBns[edgeInd] = Bn;
@@ -625,8 +625,8 @@ void MHDSolver2D::setInitElemUs() {
         double xc = 0.0, yc = 0.0;  // Центр петли
         std::vector<double> AzField(np.nodeCount, 0.0);
         for (auto& node : np.nodes) {
-            double dx = node.x - xc;
-            double dy = node.y - yc;
+            double dx = node.pos.x - xc;
+            double dy = node.pos.y - yc;
             double r = std::sqrt(dx*dx + dy*dy);
             AzField[node.ind] = (r <= R0) ? A * (R0 - r) : 0.0;
         }
@@ -648,9 +648,9 @@ void MHDSolver2D::setInitElemUs() {
         }
         for (int i = 0; i < innerElemCount; ++i) {
             Element elem = ep.elements[i];
-            std::vector<double> centroid = elem.centroid2D;
-            double x = centroid[0];
-            double y = centroid[1];
+            Vec2 centroid = elem.centroid2D;
+            double x = centroid.x;
+            double y = centroid.y;
             double u = 2.0;//std::sin(std::numbers::pi_v<double>/3.0);
             double v = 1.0;//std::cos(std::numbers::pi_v<double>/3.0);
             double w = 0.0;
@@ -672,13 +672,13 @@ void MHDSolver2D::setInitElemUs() {
                     //std::cin.get();
                     Node node_before = np.getNode(node_before_ind);
                     if(edgeInd < innerEdgeCount) {
-                        Bx += initBns[edgeInd] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
-                        By += initBns[edgeInd] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                        Bx += initBns[edgeInd] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
+                        By += initBns[edgeInd] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
                     }
                     else{
                         continue;
-                        Bx += initGhostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
-                        By += initGhostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                        Bx += initGhostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
+                        By += initGhostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
                     }
                 } else if(edge.neighbourInd2 != -1){
                     // а вот для второго нужно умножать на -1 и в обратном порядке
@@ -689,13 +689,13 @@ void MHDSolver2D::setInitElemUs() {
                                     nodeInElemInd - 1);
                     Node node_before = np.getNode(node_before_ind);
                     if(edgeInd < innerEdgeCount) {
-                        Bx -= initBns[edgeInd] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
-                        By -= initBns[edgeInd] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                        Bx -= initBns[edgeInd] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
+                        By -= initBns[edgeInd] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
                     }
                     else{
                         continue;
-                        Bx -= initGhostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
-                        By -= initGhostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                        Bx -= initGhostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
+                        By -= initGhostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
                     }
                 }
             }
@@ -722,9 +722,9 @@ void MHDSolver2D::setInitElemUs() {
         initGhostElemUs.resize(geometryWorld.ghostElemCount, std::vector<double>(8, 0.0));
         for (int i = 0; i < innerElemCount; ++i) {
             Element elem = ep.elements[i];
-            std::vector<double> centroid = elem.centroid2D;
-            double x = centroid[0];
-            double y = centroid[1];
+            Vec2 centroid = elem.centroid2D;
+            double x = centroid.x;
+            double y = centroid.y;
             double x_par = x * std::cos(alpha) + y * std::sin(alpha);
             double v_perp = 0.1 * std::sin(2.0 * std::numbers::pi_v<double> * x_par);
             double v_par = 0.0;
@@ -746,14 +746,14 @@ void MHDSolver2D::setInitElemUs() {
         initGhostBNs.resize(geometryWorld.ghostElemCount*2, 0.0);
         for(int i = 0; i < edgp.edgeCount; ++i){
             Edge edge = edgp.edges[i];
-            double x = edge.midPoint[0];
-            double y = edge.midPoint[1];
+            double x = edge.midPoint.x;
+            double y = edge.midPoint.y;
             double x_par = x * std::cos(alpha) + y * std::sin(alpha);
             double B_perp = 0.1 * std::sin(2.0 * std::numbers::pi_v<double> * x_par);
             double B_par = 1.0;
             double Bx = B_par * std::cos(alpha) - B_perp * std::sin(alpha);
             double By = B_perp * std::cos(alpha) + B_par * std::sin(alpha);
-            double Bn = Bx * edge.normalVector[0] +  By * edge.normalVector[1];
+            double Bn = Bx * edge.normalVector.x +  By * edge.normalVector.y;
             initBns[edge.ind] = Bn;
             if(i < innerEdgeCount) {
                 initBns[edge.ind] = Bn;
@@ -791,7 +791,8 @@ void MHDSolver2D::runSolver() {
 
     // проверка на нормировку нормалей
     for(const auto edge: edgePool.edges){
-        double norm = std::sqrt(edge.normalVector[0]*edge.normalVector[0] + edge.normalVector[1]*edge.normalVector[1]);
+        double sqr = edge.normalVector*edge.normalVector;
+        double norm = std::sqrt(sqr);
         if(std::abs(1.0-norm) > 1e-15){
             std::cout << "bad normal! |1 - norm| = " << std::abs(1.0-norm) << " edge.is_ghost = " << edge.is_ghost <<std::endl;
         }
@@ -911,8 +912,8 @@ void MHDSolver2D::runSolver() {
                         Node node1 = nodePool.getNode(edge_j.nodeInd1);
                         Node node2 = nodePool.getNode(edge_j.nodeInd2);
                         std::cout << "edge: " << edge_j.ind << std::endl;
-                        std::cout << "node1 # " << edge_j.nodeInd1 << " { " << node1.x << ", " << node1.y << " } \n";
-                        std::cout << "node2 # " << edge_j.nodeInd2 << " { " << node2.x << ", " << node2.y << " } \n";
+                        std::cout << "node1 # " << edge_j.nodeInd1 << " { " << node1.pos.x << ", " << node1.pos.y << " } \n";
+                        std::cout << "node2 # " << edge_j.nodeInd2 << " { " << node2.pos.x << ", " << node2.pos.y << " } \n";
                         Element elem1 = elPool.elements[edge_j.neighbourInd1];
                         std::cout << "neigel1 # " << elem1.ind << " isBoundary = " << elem1.is_boundary
                                   << " , isGhost = " << elem1.is_ghost << std::endl;
@@ -952,8 +953,8 @@ void MHDSolver2D::runSolver() {
                         Node node1 = nodePool.getNode(edge_j.nodeInd1);
                         Node node2 = nodePool.getNode(edge_j.nodeInd2);
                         std::cout << "edge: " << edge_j.ind << std::endl;
-                        std::cout << "node1 # " << edge_j.nodeInd1 << " { " << node1.x << ", " << node1.y << " } \n";
-                        std::cout << "node2 # " << edge_j.nodeInd2 << " { " << node2.x << ", " << node2.y << " } \n";
+                        std::cout << "node1 # " << edge_j.nodeInd1 << " { " << node1.pos.x << ", " << node1.pos.y << " } \n";
+                        std::cout << "node2 # " << edge_j.nodeInd2 << " { " << node2.pos.x << ", " << node2.pos.y << " } \n";
                         Element elem1 = elPool.elements[edge_j.neighbourInd1];
                         std::cout << "neigel1 # " << elem1.ind << " isBoundary = " << elem1.is_boundary
                                   << " , isGhost = " << elem1.is_ghost << std::endl;
@@ -978,8 +979,8 @@ void MHDSolver2D::runSolver() {
                         Node node1 = nodePool.getNode(edge_j.nodeInd1);
                         Node node2 = nodePool.getNode(edge_j.nodeInd2);
                         std::cout << "edge: " << edge_j.ind << std::endl;
-                        std::cout << "node1 # " << edge_j.nodeInd1 << " { " << node1.x << ", " << node1.y << " } \n";
-                        std::cout << "node2 # " << edge_j.nodeInd2 << " { " << node2.x << ", " << node2.y << " } \n";
+                        std::cout << "node1 # " << edge_j.nodeInd1 << " { " << node1.pos.x << ", " << node1.pos.y << " } \n";
+                        std::cout << "node2 # " << edge_j.nodeInd2 << " { " << node2.pos.x << ", " << node2.pos.y << " } \n";
                         Element elem1 = elPool.elements[edge_j.neighbourInd1];
                         std::cout << "neigel1 # " << elem1.ind << " isBoundary = " << elem1.is_boundary
                                   << " , isGhost = " << elem1.is_ghost << std::endl;
@@ -1060,13 +1061,13 @@ void MHDSolver2D::runSolver() {
                 double u = edgeUs[neighbourEdgeInd][1]/edgeUs[neighbourEdgeInd][0];
                 double v = edgeUs[neighbourEdgeInd][2]/edgeUs[neighbourEdgeInd][0];
                 if(neighbourEdge.nodeInd1 == node.ind){
-                    //inflowOrientation = sgn((u*(node1.x - node2.x) + v*(node1.y - node2.y)));
-                    //std::cout << "scalar mult = " << (u*(node1.x - node2.x) + v*(node1.y - node2.y)) <<" , orient = " << inflowOrientation <<std::endl;
+                    //inflowOrientation = sgn((u*(node1.pos.x - node2.pos.x) + v*(node1.pos.y - node2.pos.y)));
+                    //std::cout << "scalar mult = " << (u*(node1.pos.x - node2.pos.x) + v*(node1.pos.y - node2.pos.y)) <<" , orient = " << inflowOrientation <<std::endl;
                     //std::cin.get();
                 }
                 else if(neighbourEdge.nodeInd2 == node.ind){
-                    //inflowOrientation =  sgn((u*(node2.x - node1.x) + v*(node2.y - node1.y)));
-                    //std::cout << "scalar mult = " <<  (u*(node2.x - node1.x) + v*(node2.y - node1.y))  <<" , orient = " << inflowOrientation <<std::endl;
+                    //inflowOrientation =  sgn((u*(node2.pos.x - node1.pos.x) + v*(node2.pos.y - node1.pos.y)));
+                    //std::cout << "scalar mult = " <<  (u*(node2.pos.x - node1.pos.x) + v*(node2.pos.y - node1.pos.y))  <<" , orient = " << inflowOrientation <<std::endl;
                     //std::cin.get();
                 }
                 if(inflowOrientation > 0) {
@@ -1091,7 +1092,7 @@ void MHDSolver2D::runSolver() {
 //#pragma omp parallel for
         for (int i = 0; i < innerElemCount; ++i) {
             Element elem = elPool.elements[i];
-            std::vector<double> centroid = getElementCentroid2D(elem, nodePool);
+            Vec2 centroid = getElementCentroid2D(elem, nodePool);
             if(elem.edgeIndexes.empty()){
                 std::cerr << "Empty element! (no edges)" << std::endl;
             }
@@ -1099,8 +1100,8 @@ void MHDSolver2D::runSolver() {
             double temp_sum_By = 0.0;
             for (const auto &edgeInd: elem.edgeIndexes) {
                 Edge edge = edgePool.edges[edgeInd];
-                std::vector<double> cTe = edge.midPoint - centroid;
-                double scmult = cTe[0]*edge.normalVector[0] + cTe[1]*edge.normalVector[1];
+                Vec2 cTe = edge.midPoint - centroid;
+                double scmult = cTe*edge.normalVector;
                 if (scmult > 0.0/*edge.neighbourInd1 == elem.ind*/) {
                     // у первого соседа в эдже заданы ноды в порядке полодительного обхода и нормаль тоже
                     const auto nodeInElemInd = std::find(elem.nodeIndexes.begin(), elem.nodeIndexes.end(),
@@ -1112,13 +1113,13 @@ void MHDSolver2D::runSolver() {
                     //std::cin.get();
                     Node node_before = nodePool.getNode(node_before_ind);
                     if(edgeInd < innerEdgeCount) {
-                        temp_sum_Bx += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
-                        temp_sum_By += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                        temp_sum_Bx += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
+                        temp_sum_By += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
                     }
                     else{
                         continue;
-                        temp_sum_Bx += ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
-                        temp_sum_By += ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                        temp_sum_Bx += ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
+                        temp_sum_By += ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
                     }
                 } else if(scmult < 0.0/*edge.neighbourInd2 != -1*/){
                     // а вот для второго нужно умножать на -1 и в обратном порядке
@@ -1129,13 +1130,13 @@ void MHDSolver2D::runSolver() {
                                     nodeInElemInd - 1);
                     Node node_before = nodePool.getNode(node_before_ind);
                     if(edgeInd < innerEdgeCount) {
-                        temp_sum_Bx -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
-                        temp_sum_By -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                        temp_sum_Bx -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
+                        temp_sum_By -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
                     }
                     else{
                         continue;
-                        temp_sum_Bx -= ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
-                        temp_sum_By -= ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                        temp_sum_Bx -= ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
+                        temp_sum_By -= ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
                     }
                 }
             }
@@ -1218,7 +1219,7 @@ void MHDSolver2D::writeVTU(const std::string& filename, const bool& ghost) {
     file << "        <DataArray type=\"Float64\" NumberOfComponents=\"3\" format=\"ascii\">\n";
     for (const auto& node : np.nodes) {
         if (!node.is_ghost || ghost) {
-            file << "          " << node.x << " " << node.y << " " << node.z << "\n";
+            file << "          " << node.pos.x << " " << node.pos.y << " " << 0.0 << "\n";
         }
     }
     file << "        </DataArray>\n";
@@ -1298,15 +1299,15 @@ double MHDSolver2D::computeDivergence() {
     // 1/S Sum(l*Bn)
     for (int i = 0; i < innerElemCount; ++i) {
         Element elem = elPool.elements[i];
-        std::vector<double> centroid = getElementCentroid2D(elem, nodePool);
+        Vec2 centroid = getElementCentroid2D(elem, nodePool);
         if (elem.edgeIndexes.empty()) {
             std::cerr << "Empty element! (no edges)" << std::endl;
         }
         double divergence = 0.0;
         for (const auto &edgeInd: elem.edgeIndexes) {
             Edge edge = edgePool.edges[edgeInd];
-            std::vector<double> cTe = edge.midPoint - centroid;
-            double scmult = cTe[0]*edge.normalVector[0] + cTe[1]*edge.normalVector[1];
+            Vec2 cTe = edge.midPoint - centroid;
+            double scmult = cTe*edge.normalVector;
             if (scmult > 0) {
                 divergence += edge.length * bNs[edgeInd];
             } else {
@@ -1356,9 +1357,9 @@ void MHDSolver2D::setInitCylindricElemUs() {
         initElemUs.resize(innerElemCount, std::vector<double>(8, 0.0));
         for (int i = 0; i < innerElemCount; ++i) {
             Element elem = ep.elements[i];
-            std::vector<double> centroid = elem.centroid2D;
+            Vec2 centroid = elem.centroid2D;
             int elInd = elem.ind;
-            if (centroid[1] < 0.2) {
+            if (centroid.y < 0.2) {
                 initElemUs[elInd] = state_from_primitive_vars(BrioWu_L1);
             } else {
                 initElemUs[elInd] = state_from_primitive_vars(BrioWu_R1);
@@ -1368,10 +1369,10 @@ void MHDSolver2D::setInitCylindricElemUs() {
         initGhostElemUs.resize(geometryWorld.ghostElemCount, std::vector<double>(8, 0.0));
         for(int i = innerElemCount; i < ep.elCount; ++i ){
             Element elem = ep.elements[i];
-            std::vector<double> centroid = elem.centroid2D;
+            Vec2 centroid = elem.centroid2D;
             int elInd = elem.ind;
             int ghostInd = elInd - innerElemCount;
-            if (centroid[1] < 0.2) {
+            if (centroid.y < 0.2) {
                 initGhostElemUs[ghostInd] = state_from_primitive_vars(BrioWu_L1);
             } else {
                 initGhostElemUs[ghostInd] = state_from_primitive_vars(BrioWu_R1);
@@ -1383,16 +1384,16 @@ void MHDSolver2D::setInitCylindricElemUs() {
         initEdgeUs.resize(edgp.edgeCount, std::vector<double>(8, 0.0));
         for (int i = 0; i < edgp.edgeCount; ++i) {
             Edge edge = edgp.edges[i];
-            std::vector<double> midP = edge.midPoint;
+            Vec2 midP = edge.midPoint;
             int edgeInd = edge.ind;
-            std::vector<double> normal = edge.normalVector;
+            Vec2 normal = edge.normalVector;
             std::vector<double> state;
-            if (midP[1] < 0.2) {
+            if (midP.y < 0.2) {
                 state = state_from_primitive_vars(BrioWu_L1);
             } else {
                 state = state_from_primitive_vars(BrioWu_R1);
             }
-            double Bn = state[5] * normal[0] + state[6] * normal[1];
+            double Bn = state[5] * normal.x + state[6] * normal.y;
             initBns[edgeInd] = Bn;
             if(i < innerEdgeCount) {
                 initBns[edgeInd] = Bn;
@@ -1417,9 +1418,9 @@ void MHDSolver2D::setInitCylindricElemUs() {
         initElemUs.resize(innerElemCount, std::vector<double>(8, 0.0));
         for (int i = 0; i < innerElemCount; ++i) {
             Element elem = ep.elements[i];
-            std::vector<double> centroid = elem.centroid2D;
+            Vec2 centroid = elem.centroid2D;
             int elInd = elem.ind;
-            if (centroid[1] < 0.5) {
+            if (centroid.y < 0.5) {
                 initElemUs[elInd] = state_from_primitive_vars(BrioWu_L1);
             } else {
                 initElemUs[elInd] = state_from_primitive_vars(BrioWu_R1);
@@ -1429,10 +1430,10 @@ void MHDSolver2D::setInitCylindricElemUs() {
         initGhostElemUs.resize(geometryWorld.ghostElemCount, std::vector<double>(8, 0.0));
         for(int i = innerElemCount; i < ep.elCount; ++i ){
             Element elem = ep.elements[i];
-            std::vector<double> centroid = elem.centroid2D;
+            Vec2 centroid = elem.centroid2D;
             int elInd = elem.ind;
             int ghostInd = elInd - innerElemCount;
-            if (centroid[1] < 0.5) {
+            if (centroid.y < 0.5) {
                 initGhostElemUs[ghostInd] = state_from_primitive_vars(BrioWu_L1);
             } else {
                 initGhostElemUs[ghostInd] = state_from_primitive_vars(BrioWu_R1);
@@ -1444,16 +1445,16 @@ void MHDSolver2D::setInitCylindricElemUs() {
         initEdgeUs.resize(edgp.edgeCount, std::vector<double>(8, 0.0));
         for (int i = 0; i < edgp.edgeCount; ++i) {
             Edge edge = edgp.edges[i];
-            std::vector<double> midP = edge.midPoint;
+            Vec2 midP = edge.midPoint;
             int edgeInd = edge.ind;
-            std::vector<double> normal = edge.normalVector;
+            Vec2 normal = edge.normalVector;
             std::vector<double> state;
-            if (midP[1] < 0.5) {
+            if (midP.y < 0.5) {
                 state = state_from_primitive_vars(BrioWu_L1);
             } else {
                 state = state_from_primitive_vars(BrioWu_R1);
             }
-            double Bn = state[5] * normal[0] + state[6] * normal[1];
+            double Bn = state[5] * normal.x + state[6] * normal.y;
             initBns[edgeInd] = Bn;
             if(i < innerEdgeCount) {
                 initBns[edgeInd] = Bn;
@@ -1534,7 +1535,7 @@ void MHDSolver2D::applyZeroRConditions(ElementPool& elPool, EdgePool& edgePool, 
         if(elem.is_boundary){
             for(int& j: elem.edgeIndexes){
                 Edge edge = edgePool.edges[j];
-                if(nodePool.getNode(edge.nodeInd1).y < 1e-14 && nodePool.getNode(edge.nodeInd2).y < 1e-14){
+                if(nodePool.getNode(edge.nodeInd1).pos.y < 1e-14 && nodePool.getNode(edge.nodeInd2).pos.y < 1e-14){
                     isZeroR = true;
                 }
             }
@@ -1579,7 +1580,7 @@ void MHDSolver2D::runCylindricSolver() {
 
     // проверка на нормировку нормалей
     for(const auto edge: edgePool.edges){
-        double norm = std::sqrt(edge.normalVector[0]*edge.normalVector[0] + edge.normalVector[1]*edge.normalVector[1]);
+        double norm = std::sqrt(edge.normalVector*edge.normalVector);
         if(std::abs(1.0-norm) > 1e-15){
             std::cout << "bad normal! |1 - norm| = " << std::abs(1.0-norm) << " edge.is_ghost = " << edge.is_ghost <<std::endl;
         }
@@ -1625,18 +1626,33 @@ void MHDSolver2D::runCylindricSolver() {
 
         // вычисляем потоки, проходящие через каждое ребро
         // инициализируем вектор потоков через рёбра // MHD (HLLD) fluxes (from one element to another "<| -> |>")
-        std::vector<double> fluxes_flat(edgePool.edges.size() * 8, 0.0);
-        std::vector<double> unrotated_fluxes_flat(edgePool.edges.size() * 8, 0.0);
-
-        computeHLLDFluxesGPU(elPool.elements, edgePool.edges, elemUs_prev, ghostElemUs, innerElemCount, ns.boundaryToGhostElements, gam_hcr, fluxes_flat, unrotated_fluxes_flat);
-
         std::vector<std::vector<double>> fluxes(edgePool.edges.size(), std::vector<double>(8, 0.0));
         std::vector<std::vector<double>> unrotated_fluxes(edgePool.edges.size(), std::vector<double>(8, 0.0));
-        #pragma  parallel for
-        for(int ii = 0; ii < fluxes.size(); ++ii){
-            for(int kk =0 ; kk < 8; ++kk){
-                fluxes[ii][kk] = fluxes_flat[ii*8 + kk];
-                unrotated_fluxes[ii][kk] = unrotated_fluxes_flat[ii*8 + kk];
+#pragma parallel for
+        for (const auto &edge: edgePool.edges) {
+            Element neighbour1 = elPool.elements[edge.neighbourInd1];
+            if(neighbour1.is_boundary && edge.neighbourInd2 == -1){
+                std::vector<double> U1 = rotateStateFromAxisToNormal(elemUs_prev[neighbour1.ind], edge.normalVector);
+                int ghostInd = ns.boundaryToGhostElements[neighbour1.ind] - innerElemCount;
+                std::vector<double> U2 = rotateStateFromAxisToNormal(ghostElemUs[ghostInd], edge.normalVector);
+                fluxes[edge.ind] = HLLD_flux(U1, U2, gam_hcr);
+                unrotated_fluxes[edge.ind] = fluxes[edge.ind];
+                fluxes[edge.ind] = rotateStateFromNormalToAxisX(fluxes[edge.ind], edge.normalVector);
+            }
+            else if(neighbour1.is_ghost && edge.neighbourInd2 == -1){
+                //continue; //TODO
+                std::vector<double> U1 = rotateStateFromAxisToNormal(ghostElemUs[neighbour1.ind - innerElemCount], edge.normalVector);
+                fluxes[edge.ind] = HLLD_flux(U1, U1, gam_hcr);
+                unrotated_fluxes[edge.ind] = HLLD_flux(U1, U1, gam_hcr);
+                fluxes[edge.ind] = rotateStateFromNormalToAxisX(fluxes[edge.ind], edge.normalVector);
+            }
+            else{
+                std::vector<double> U1 = rotateStateFromAxisToNormal(elemUs_prev[neighbour1.ind], edge.normalVector);
+                Element neighbour2 = elPool.elements[edge.neighbourInd2];
+                std::vector<double> U2 = rotateStateFromAxisToNormal(elemUs_prev[neighbour2.ind], edge.normalVector);
+                fluxes[edge.ind] = HLLD_flux(U1, U2, gam_hcr);
+                unrotated_fluxes[edge.ind] = fluxes[edge.ind];
+                fluxes[edge.ind] = rotateStateFromNormalToAxisX(fluxes[edge.ind], edge.normalVector);
             }
         }
 
@@ -1675,19 +1691,19 @@ void MHDSolver2D::runCylindricSolver() {
                 std::cout << "Bad edge vector size != 3" << std::endl;
                 continue;
             }
-                double baricent = (nodePool.getNode(elem.nodeIndexes[0]).y + nodePool.getNode(elem.nodeIndexes[1]).y + nodePool.getNode(elem.nodeIndexes[2]).y)/3.0;
+                double baricent = (nodePool.getNode(elem.nodeIndexes[0]).pos.y + nodePool.getNode(elem.nodeIndexes[1]).pos.y + nodePool.getNode(elem.nodeIndexes[2]).pos.y)/3.0;
                 if(baricent*elem.area < 1e-10){
                     std::cout << "zero baricent!!!"<<std::endl;
                     baricent = 1e-12;
                 }
-                double scale = tau / (/*baricent */ elem.area);
+                double scale = tau / (baricent * elem.area);
                 for (int edgeIndex: elem.edgeIndexes) {
                     Edge edge_j = edgePool.edges[edgeIndex];
                     if (std::abs(edge_j.length) < 1e-12) {
                         std::cout << "BAD EDGE LENGTH = 0!! " << edge_j.length << std::endl;
                     }
-                    double r1 = nodePool.getNode(edge_j.nodeInd1).y;
-                    double r2 = nodePool.getNode(edge_j.nodeInd2).y;
+                    double r1 = nodePool.getNode(edge_j.nodeInd1).pos.y;
+                    double r2 = nodePool.getNode(edge_j.nodeInd2).pos.y;
                     double r_mid = (r1 + r2)/2.0;
                     if(r_mid < 1e-10){
                         continue;
@@ -1707,7 +1723,7 @@ void MHDSolver2D::runCylindricSolver() {
                 int ghostNodeInd = *std::max_element(ghostEl.nodeIndexes.begin(),
                                                      ghostEl.nodeIndexes.end()); //тк при генерации гост элементы уже после основных создаются => их индексы всегда больше
                 int ghostIndForState = ns.boundaryToGhostElements[i] - innerElemCount;
-                double r_ghost = nodePool.getNode(ghostNodeInd).y;
+                double r_ghost = nodePool.getNode(ghostNodeInd).pos.y;
                 if(r_ghost < 0.0){
                     continue;
                 }else {
@@ -1720,8 +1736,8 @@ void MHDSolver2D::runCylindricSolver() {
                     }
                     int commonEdgeInd = commonEdges[0];
                     double area = elem.area * 2.0;
-                    double baricent = (nodePool.getNode(elem.nodeIndexes[0]).y + nodePool.getNode(elem.nodeIndexes[1]).y\
-                                        + nodePool.getNode(elem.nodeIndexes[2]).y + nodePool.getNode(ghostNodeInd).y) / 4.0;
+                    double baricent = (nodePool.getNode(elem.nodeIndexes[0]).pos.y + nodePool.getNode(elem.nodeIndexes[1]).pos.y\
+                                        + nodePool.getNode(elem.nodeIndexes[2]).pos.y + nodePool.getNode(ghostNodeInd).pos.y) / 4.0;
                     if (baricent < 1e-14) {
                         baricent = 1e-14;
                     }
@@ -1734,8 +1750,8 @@ void MHDSolver2D::runCylindricSolver() {
                         if (std::abs(edge_j.length) < 1e-16) {
                             std::cout << "BAD EDGE LENGTH = 0!! " << edge_j.length << std::endl;
                         }
-                        double r1 = nodePool.getNode(edge_j.nodeInd1).y;
-                        double r2 = nodePool.getNode(edge_j.nodeInd2).y;
+                        double r1 = nodePool.getNode(edge_j.nodeInd1).pos.y;
+                        double r2 = nodePool.getNode(edge_j.nodeInd2).pos.y;
                         double r_mid = (r1 + r2) / 2.0;
                         if (r_mid < 0) {
                             std::cout << "r_mid < 0! in boundary elem edge" << std::endl;
@@ -1760,8 +1776,8 @@ void MHDSolver2D::runCylindricSolver() {
                         if (std::abs(edge_j.length) < 1e-16) {
                             std::cout << "BAD EDGE LENGTH = 0!! " << edge_j.length << std::endl;
                         }
-                        double r1 = nodePool.getNode(edge_j.nodeInd1).y;
-                        double r2 = nodePool.getNode(edge_j.nodeInd2).y;
+                        double r1 = nodePool.getNode(edge_j.nodeInd1).pos.y;
+                        double r2 = nodePool.getNode(edge_j.nodeInd2).pos.y;
                         double r_mid = (r1 + r2) / 2.0;
                         if (r_mid < 0) {
                             std::cout << r_mid << " r_mid < 0! in ghost elem edge" << std::endl;
@@ -1806,13 +1822,13 @@ void MHDSolver2D::runCylindricSolver() {
                 double u = edgeUs[neighbourEdgeInd][1]/edgeUs[neighbourEdgeInd][0];
                 double v = edgeUs[neighbourEdgeInd][2]/edgeUs[neighbourEdgeInd][0];
                 if(neighbourEdge.nodeInd1 == node.ind){
-                    //inflowOrientation = sgn((u*(node1.x - node2.x) + v*(node1.y - node2.y)));
-                    //std::cout << "scalar mult = " << (u*(node1.x - node2.x) + v*(node1.y - node2.y)) <<" , orient = " << inflowOrientation <<std::endl;
+                    //inflowOrientation = sgn((u*(node1.pos.x - node2.pos.x) + v*(node1.pos.y - node2.pos.y)));
+                    //std::cout << "scalar mult = " << (u*(node1.pos.x - node2.pos.x) + v*(node1.pos.y - node2.pos.y)) <<" , orient = " << inflowOrientation <<std::endl;
                     //std::cin.get();
                 }
                 else if(neighbourEdge.nodeInd2 == node.ind){
-                    //inflowOrientation =  sgn((u*(node2.x - node1.x) + v*(node2.y - node1.y)));
-                    //std::cout << "scalar mult = " <<  (u*(node2.x - node1.x) + v*(node2.y - node1.y))  <<" , orient = " << inflowOrientation <<std::endl;
+                    //inflowOrientation =  sgn((u*(node2.pos.x - node1.pos.x) + v*(node2.pos.y - node1.pos.y)));
+                    //std::cout << "scalar mult = " <<  (u*(node2.pos.x - node1.pos.x) + v*(node2.pos.y - node1.pos.y))  <<" , orient = " << inflowOrientation <<std::endl;
                     //std::cin.get();
                 }
                 if(inflowOrientation > 0) {
@@ -1829,8 +1845,8 @@ void MHDSolver2D::runCylindricSolver() {
         std::vector<double> bNs_prev(bNs);
         for (int i = 0; i < edgePool.edgeCount; ++i) {
             Edge edge = edgePool.edges[i];
-            double r1 = nodePool.getNode(edge.nodeInd1).y;
-            double r2 = nodePool.getNode(edge.nodeInd2).y;
+            double r1 = nodePool.getNode(edge.nodeInd1).pos.y;
+            double r2 = nodePool.getNode(edge.nodeInd2).pos.y;
             double r_mid = (r1 + r2)/2.0;
             if(r_mid < 1e-14){
                 r_mid = 1e-14;
@@ -1843,7 +1859,7 @@ void MHDSolver2D::runCylindricSolver() {
 //#pragma omp parallel for
         for (int i = 0; i < innerElemCount; ++i) {
             Element elem = elPool.elements[i];
-            std::vector<double> centroid = getElementCentroid2D(elem, nodePool);
+            Vec2 centroid = getElementCentroid2D(elem, nodePool);
             if(elem.edgeIndexes.empty()){
                 std::cerr << "Empty element! (no edges)" << std::endl;
             }
@@ -1851,8 +1867,8 @@ void MHDSolver2D::runCylindricSolver() {
             double temp_sum_By = 0.0;
             for (const auto &edgeInd: elem.edgeIndexes) {
                 Edge edge = edgePool.edges[edgeInd];
-                std::vector<double> cTe = edge.midPoint - centroid;
-                double scmult = cTe[0]*edge.normalVector[0] + cTe[1]*edge.normalVector[1];
+                Vec2 cTe = edge.midPoint - centroid;
+                double scmult = cTe*edge.normalVector;
                 if (scmult > 0.0/*edge.neighbourInd1 == elem.ind*/) {
                     // у первого соседа в эдже заданы ноды в порядке полодительного обхода и нормаль тоже
                     const auto nodeInElemInd = std::find(elem.nodeIndexes.begin(), elem.nodeIndexes.end(),
@@ -1864,13 +1880,13 @@ void MHDSolver2D::runCylindricSolver() {
                     //std::cin.get();
                     Node node_before = nodePool.getNode(node_before_ind);
                     if(edgeInd < innerEdgeCount) {
-                        temp_sum_Bx += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
-                        temp_sum_By += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                        temp_sum_Bx += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
+                        temp_sum_By += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
                     }
                     else{
                         continue;
-                        temp_sum_Bx += ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
-                        temp_sum_By += ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                        temp_sum_Bx += ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
+                        temp_sum_By += ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
                     }
                 } else if(scmult < 0.0/*edge.neighbourInd2 != -1*/){
                     // а вот для второго нужно умножать на -1 и в обратном порядке
@@ -1881,13 +1897,13 @@ void MHDSolver2D::runCylindricSolver() {
                                     nodeInElemInd - 1);
                     Node node_before = nodePool.getNode(node_before_ind);
                     if(edgeInd < innerEdgeCount) {
-                        temp_sum_Bx -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
-                        temp_sum_By -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                        temp_sum_Bx -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
+                        temp_sum_By -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
                     }
                     else{
                         continue;
-                        temp_sum_Bx -= ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
-                        temp_sum_By -= ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                        temp_sum_Bx -= ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
+                        temp_sum_By -= ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
                     }
                 }
             }
@@ -1947,7 +1963,7 @@ void MHDSolver2D::runGPUSolver() {
 
     // проверка на нормировку нормалей + предобработка для gpu
     for(const auto edge: edgePool.edges){
-        double norm = std::sqrt(edge.normalVector[0]*edge.normalVector[0] + edge.normalVector[1]*edge.normalVector[1]);
+        double norm = std::sqrt(edge.normalVector*edge.normalVector);
         if(std::abs(1.0-norm) > 1e-15){
             std::cout << "bad normal! |1 - norm| = " << std::abs(1.0-norm) << " edge.is_ghost = " << edge.is_ghost <<std::endl;
         }
@@ -2008,7 +2024,7 @@ void MHDSolver2D::runGPUSolver() {
         std::vector<double> fluxes_flat(edgePool.edges.size() * 8, 0.0);
         std::vector<double> unrotated_fluxes_flat(edgePool.edges.size() * 8, 0.0);
 
-        computeHLLDFluxesGPU(elPool.elements, edgePool.edges, elemUs_prev, ghostElemUs, innerElemCount, ns.boundaryToGhostElements, gam_hcr, fluxes_flat, unrotated_fluxes_flat);
+        //computeHLLDFluxesGPU(elPool.elements, edgePool.edges, elemUs_prev, ghostElemUs, innerElemCount, ns.boundaryToGhostElements, gam_hcr, fluxes_flat, unrotated_fluxes_flat);
 
         std::vector<std::vector<double>> fluxes(edgePool.edges.size(), std::vector<double>(8, 0.0));
         std::vector<std::vector<double>> unrotated_fluxes(edgePool.edges.size(), std::vector<double>(8, 0.0));
@@ -2060,8 +2076,8 @@ void MHDSolver2D::runGPUSolver() {
                         Node node1 = nodePool.getNode(edge_j.nodeInd1);
                         Node node2 = nodePool.getNode(edge_j.nodeInd2);
                         std::cout << "edge: " << edge_j.ind << std::endl;
-                        std::cout << "node1 # " << edge_j.nodeInd1 << " { " << node1.x << ", " << node1.y << " } \n";
-                        std::cout << "node2 # " << edge_j.nodeInd2 << " { " << node2.x << ", " << node2.y << " } \n";
+                        std::cout << "node1 # " << edge_j.nodeInd1 << " { " << node1.pos.x << ", " << node1.pos.y << " } \n";
+                        std::cout << "node2 # " << edge_j.nodeInd2 << " { " << node2.pos.x << ", " << node2.pos.y << " } \n";
                         Element elem1 = elPool.elements[edge_j.neighbourInd1];
                         std::cout << "neigel1 # " << elem1.ind << " isBoundary = " << elem1.is_boundary
                                   << " , isGhost = " << elem1.is_ghost << std::endl;
@@ -2101,8 +2117,8 @@ void MHDSolver2D::runGPUSolver() {
                         Node node1 = nodePool.getNode(edge_j.nodeInd1);
                         Node node2 = nodePool.getNode(edge_j.nodeInd2);
                         std::cout << "edge: " << edge_j.ind << std::endl;
-                        std::cout << "node1 # " << edge_j.nodeInd1 << " { " << node1.x << ", " << node1.y << " } \n";
-                        std::cout << "node2 # " << edge_j.nodeInd2 << " { " << node2.x << ", " << node2.y << " } \n";
+                        std::cout << "node1 # " << edge_j.nodeInd1 << " { " << node1.pos.x << ", " << node1.pos.y << " } \n";
+                        std::cout << "node2 # " << edge_j.nodeInd2 << " { " << node2.pos.x << ", " << node2.pos.y << " } \n";
                         Element elem1 = elPool.elements[edge_j.neighbourInd1];
                         std::cout << "neigel1 # " << elem1.ind << " isBoundary = " << elem1.is_boundary
                                   << " , isGhost = " << elem1.is_ghost << std::endl;
@@ -2127,8 +2143,8 @@ void MHDSolver2D::runGPUSolver() {
                         Node node1 = nodePool.getNode(edge_j.nodeInd1);
                         Node node2 = nodePool.getNode(edge_j.nodeInd2);
                         std::cout << "edge: " << edge_j.ind << std::endl;
-                        std::cout << "node1 # " << edge_j.nodeInd1 << " { " << node1.x << ", " << node1.y << " } \n";
-                        std::cout << "node2 # " << edge_j.nodeInd2 << " { " << node2.x << ", " << node2.y << " } \n";
+                        std::cout << "node1 # " << edge_j.nodeInd1 << " { " << node1.pos.x << ", " << node1.pos.y << " } \n";
+                        std::cout << "node2 # " << edge_j.nodeInd2 << " { " << node2.pos.x << ", " << node2.pos.y << " } \n";
                         Element elem1 = elPool.elements[edge_j.neighbourInd1];
                         std::cout << "neigel1 # " << elem1.ind << " isBoundary = " << elem1.is_boundary
                                   << " , isGhost = " << elem1.is_ghost << std::endl;
@@ -2212,13 +2228,13 @@ void MHDSolver2D::runGPUSolver() {
                 double u = edgeUs[neighbourEdgeInd][1]/edgeUs[neighbourEdgeInd][0];
                 double v = edgeUs[neighbourEdgeInd][2]/edgeUs[neighbourEdgeInd][0];
                 if(neighbourEdge.nodeInd1 == node.ind){
-                    //inflowOrientation = sgn((u*(node1.x - node2.x) + v*(node1.y - node2.y)));
-                    //std::cout << "scalar mult = " << (u*(node1.x - node2.x) + v*(node1.y - node2.y)) <<" , orient = " << inflowOrientation <<std::endl;
+                    //inflowOrientation = sgn((u*(node1.pos.x - node2.pos.x) + v*(node1.pos.y - node2.pos.y)));
+                    //std::cout << "scalar mult = " << (u*(node1.pos.x - node2.pos.x) + v*(node1.pos.y - node2.pos.y)) <<" , orient = " << inflowOrientation <<std::endl;
                     //std::cin.get();
                 }
                 else if(neighbourEdge.nodeInd2 == node.ind){
-                    //inflowOrientation =  sgn((u*(node2.x - node1.x) + v*(node2.y - node1.y)));
-                    //std::cout << "scalar mult = " <<  (u*(node2.x - node1.x) + v*(node2.y - node1.y))  <<" , orient = " << inflowOrientation <<std::endl;
+                    //inflowOrientation =  sgn((u*(node2.pos.x - node1.pos.x) + v*(node2.pos.y - node1.pos.y)));
+                    //std::cout << "scalar mult = " <<  (u*(node2.pos.x - node1.pos.x) + v*(node2.pos.y - node1.pos.y))  <<" , orient = " << inflowOrientation <<std::endl;
                     //std::cin.get();
                 }
                 if(inflowOrientation > 0) {
@@ -2243,7 +2259,7 @@ void MHDSolver2D::runGPUSolver() {
 //#pragma omp parallel for
         for (int i = 0; i < innerElemCount; ++i) {
             Element elem = elPool.elements[i];
-            std::vector<double> centroid = getElementCentroid2D(elem, nodePool);
+            Vec2 centroid = getElementCentroid2D(elem, nodePool);
             if(elem.edgeIndexes.empty()){
                 std::cerr << "Empty element! (no edges)" << std::endl;
             }
@@ -2251,8 +2267,8 @@ void MHDSolver2D::runGPUSolver() {
             double temp_sum_By = 0.0;
             for (const auto &edgeInd: elem.edgeIndexes) {
                 Edge edge = edgePool.edges[edgeInd];
-                std::vector<double> cTe = edge.midPoint - centroid;
-                double scmult = cTe[0]*edge.normalVector[0] + cTe[1]*edge.normalVector[1];
+                Vec2 cTe = edge.midPoint - centroid;
+                double scmult = cTe*edge.normalVector;
                 if (scmult > 0.0/*edge.neighbourInd1 == elem.ind*/) {
                     // у первого соседа в эдже заданы ноды в порядке полодительного обхода и нормаль тоже
                     const auto nodeInElemInd = std::find(elem.nodeIndexes.begin(), elem.nodeIndexes.end(),
@@ -2264,13 +2280,13 @@ void MHDSolver2D::runGPUSolver() {
                     //std::cin.get();
                     Node node_before = nodePool.getNode(node_before_ind);
                     if(edgeInd < innerEdgeCount) {
-                        temp_sum_Bx += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
-                        temp_sum_By += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                        temp_sum_Bx += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
+                        temp_sum_By += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
                     }
                     else{
                         continue;
-                        temp_sum_Bx += ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
-                        temp_sum_By += ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                        temp_sum_Bx += ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
+                        temp_sum_By += ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
                     }
                 } else if(scmult < 0.0/*edge.neighbourInd2 != -1*/){
                     // а вот для второго нужно умножать на -1 и в обратном порядке
@@ -2281,13 +2297,13 @@ void MHDSolver2D::runGPUSolver() {
                                     nodeInElemInd - 1);
                     Node node_before = nodePool.getNode(node_before_ind);
                     if(edgeInd < innerEdgeCount) {
-                        temp_sum_Bx -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
-                        temp_sum_By -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                        temp_sum_Bx -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
+                        temp_sum_By -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
                     }
                     else{
                         continue;
-                        temp_sum_Bx -= ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[0] - node_before.x);
-                        temp_sum_By -= ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid[1] - node_before.y);
+                        temp_sum_Bx -= ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
+                        temp_sum_By -= ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
                     }
                 }
             }

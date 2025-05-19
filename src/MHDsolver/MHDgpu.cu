@@ -42,8 +42,8 @@ void computeHLLDFluxesGPU(const std::vector<Element> &elemHost,
     for (int i = 0; i < M; ++i) {
         edges[i].left  = edgeHost[i].neighbourInd1;
         edges[i].right = edgeHost[i].neighbourInd2;
-        edges[i].nx    = edgeHost[i].normalVector[0];
-        edges[i].ny    = edgeHost[i].normalVector[1];
+        edges[i].nx    = edgeHost[i].normalVector.x;
+        edges[i].ny    = edgeHost[i].normalVector.y;
         edges[i].neighbour1_is_boundary = elemHost[edgeHost[i].neighbourInd1].is_boundary;
         edges[i].neighbour1_is_ghost = elemHost[edgeHost[i].neighbourInd1].is_ghost;
         if(edges[i].neighbour1_is_boundary && edges[i].right == -1){

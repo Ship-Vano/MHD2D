@@ -27,10 +27,11 @@ add_executable(MHD2D
     src/MHDsolver/MHDSolver1D.cpp
     src/MHDsolver/MHDSolver2D.cpp
     src/MHDsolver/solver.cpp
-    src/MHDsolver/MHDgpu.cu
-    src/MHDsolver/GPUFunctions.cu
+#    src/MHDsolver/MHDgpu.cu
+#    src/MHDsolver/GPUFunctions.cu
     src/include/json/jsoncpp.cpp
     src/geometry/NetGeometry.cpp
+    src/include/utility/utility.cpp
 )
 
 # Explicit include paths for Arch Linux
@@ -46,10 +47,10 @@ target_link_directories(MHD2D PRIVATE
 )
 
 # Set CUDA standard and properties
-set_target_properties(MHD2D PROPERTIES
-        CUDA_STANDARD 17
-        CUDA_SEPARABLE_COMPILATION ON
-)
+#set_target_properties(MHD2D PROPERTIES
+#        CUDA_STANDARD 17
+#        CUDA_SEPARABLE_COMPILATION ON
+#)
 
 if(OpenMP_CXX_FOUND)
     target_link_libraries(MHD2D PRIVATE OpenMP::OpenMP_CXX)
@@ -65,6 +66,7 @@ add_executable(Geometry
     src/geometry/worldGen.cpp
     src/geometry/NetGeometry.cpp
     src/include/json/jsoncpp.cpp
+    src/include/utility/utility.cpp
 )
 if(OpenMP_CXX_FOUND)
     target_link_libraries(Geometry PRIVATE OpenMP::OpenMP_CXX)

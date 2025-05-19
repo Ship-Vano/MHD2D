@@ -22,7 +22,7 @@ int main(){
 
     World world = World(importFileName, true);
     if(!generatedMesh) {
-        world = World("InputData/mesh.txt", false);
+        world = World("InputData/mesh5_100.txt", false);
     }
 
     std::cout << "MINlen = "<< world.getEdgePool().minEdgeLen << std::endl;
@@ -45,28 +45,28 @@ int main(){
     bool gpu = json_root.get("gpu", false).asBool();
 
     if(cylindrical){
-        float time;
-        cudaEvent_t start, stop;
-        cudaEventCreate(&start);
-        cudaEventCreate(&stop);
-        cudaEventRecord(start, 0);
-        solver.runCylindricSolver();
-        cudaEventRecord(stop, 0);
-        cudaEventSynchronize(stop);
-        cudaEventElapsedTime(&time, start, stop);
-        std::cout << "Time to generate: " << time <<  " ms \n";
+//        float time;
+//        cudaEvent_t start, stop;
+//        cudaEventCreate(&start);
+//        cudaEventCreate(&stop);
+//        cudaEventRecord(start, 0);
+//        solver.runCylindricSolver();
+//        cudaEventRecord(stop, 0);
+//        cudaEventSynchronize(stop);
+//        cudaEventElapsedTime(&time, start, stop);
+//        std::cout << "Time to generate: " << time <<  " ms \n";
     }
     else if(gpu){
-        float time;
-        cudaEvent_t start, stop;
-        cudaEventCreate(&start);
-        cudaEventCreate(&stop);
-        cudaEventRecord(start, 0);
-        solver.runGPUSolver();
-        cudaEventRecord(stop, 0);
-        cudaEventSynchronize(stop);
-        cudaEventElapsedTime(&time, start, stop);
-        std::cout << "Time to generate: " << time <<  " ms \n";
+//        float time;
+//        cudaEvent_t start, stop;
+//        cudaEventCreate(&start);
+//        cudaEventCreate(&stop);
+//        cudaEventRecord(start, 0);
+//        solver.runGPUSolver();
+//        cudaEventRecord(stop, 0);
+//        cudaEventSynchronize(stop);
+//        cudaEventElapsedTime(&time, start, stop);
+//        std::cout << "Time to generate: " << time <<  " ms \n";
     }
     else{
         solver.runSolver();

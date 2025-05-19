@@ -11,7 +11,7 @@ template <typename T> int sgn(T val) {
 
 // узел: конструктор по умолчанию
 Node::Node(int index, double xCoord, double yCoord, double zCoord)
-        : ind(index), x(xCoord), y(yCoord), z(zCoord) {}
+        : ind(index), pos(xCoord, yCoord, zCoord) {}
 
 // элемент: конструктор по умолчанию
 Element::Element(const int index, const std::vector<int> &nIndexes, int size)
@@ -19,9 +19,9 @@ Element::Element(const int index, const std::vector<int> &nIndexes, int size)
 }
 
 // ребро: конструктор по умолчанию
-Edge::Edge(int index, int node1, int node2, int neighbor1, int neighbor2, double len, const std::vector<double>& normalVec, const std::vector<double>& midP)
+Edge::Edge(int index, int node1, int node2, int neighbor1, int neighbor2, double len, const Vec2 &normalVec, const Vec2 &midPoint)
         : ind(index), nodeInd1(node1), nodeInd2(node2),
-          neighbourInd1(neighbor1), neighbourInd2(neighbor2), length(len), normalVector(normalVec), midPoint(midP) {}
+          neighbourInd1(neighbor1), neighbourInd2(neighbor2), length(len), normalVector(normalVec), midPoint(midPoint) {}
 
 // подсчёт площади элемента
 double areaCalc(const Element& poly, const NodePool& nPool) {
@@ -39,12 +39,12 @@ double areaCalc(const Element& poly, const NodePool& nPool) {
     double jSum = 0.0;
     double kSum = 0.0;
     for(int k = 1; k < dim-1; ++k){
-        double yk_y1 = polyNodes[k].y - polyNodes[0].y;  //y_k - y_1
-        double zk1_z1 = polyNodes[k+1].z - polyNodes[0].z; // z_{k+1} - z_1
-        double zk_z1 = polyNodes[k].z - polyNodes[0].z;
-        double yk1_y1 = polyNodes[k+1].y - polyNodes[0].y;
-        double xk1_x1 = polyNodes[k+1].x - polyNodes[0].x;
-        double xk_x1 = polyNodes[k].x - polyNodes[0].x;
+        double yk_y1 = polyNodes[k].pos.y - polyNodes[0].pos.y;  //y_k - y_1
+        double zk1_z1 = polyNodes[k+1].pos.z - polyNodes[0].pos.z; // z_{k+1} - z_1
+        double zk_z1 = polyNodes[k].pos.z - polyNodes[0].pos.z;
+        double yk1_y1 = polyNodes[k+1].pos.y - polyNodes[0].pos.y;
+        double xk1_x1 = polyNodes[k+1].pos.x - polyNodes[0].pos.x;
+        double xk_x1 = polyNodes[k].pos.x - polyNodes[0].pos.x;
         iSum += (yk_y1 * zk1_z1 - zk_z1 * yk1_y1);
         jSum += (zk_z1 * xk1_x1 - xk_x1 * zk1_z1);
         kSum += (xk_x1 * yk1_y1 - yk_y1 * xk1_x1);
@@ -54,42 +54,42 @@ double areaCalc(const Element& poly, const NodePool& nPool) {
 }
 
 // точка середины элемента
-std::vector<double> getElementCentroid2D(const Element &poly, const NodePool &nPool) {
+Vec2 getElementCentroid2D(const Element &poly, const NodePool &nPool) {
     int dim = poly.dim;
-    std::vector<double> centroid(2, 0.0);
+    Vec2 centroid(0.0, 0.0);
     for(int i = 0; i < dim; ++i){
         Node node = nPool.getNode(poly.nodeIndexes[i]);
-        centroid[0] += node.x;
-        centroid[1] += node.y;
+        centroid.x += node.pos.x;
+        centroid.y += node.pos.y;
     }
-    centroid[0] /= dim;
-    centroid[1] /= dim;
+    centroid.x /= dim;
+    centroid.y /= dim;
     return centroid;
 }
 
-std::vector<double> getElementCentroid2D(const std::vector<Node> &nodes) {
+Vec2 getElementCentroid2D(const std::vector<Node> &nodes) {
     int dim = nodes.size();
-    std::vector<double> centroid(2, 0.0);
+    Vec2 centroid(0.0, 0.0);
     for(int i = 0; i < dim; ++i){
         Node node = nodes[i];
-        centroid[0] += node.x;
-        centroid[1] += node.y;
+        centroid.x += node.pos.x;
+        centroid.y += node.pos.y;
     }
-    centroid[0] /= dim;
-    centroid[1] /= dim;
+    centroid.x /= dim;
+    centroid.y /= dim;
     return centroid;
 }
 
 // точка середины отрезка между двумя узлами
-std::vector<double> getMidPoint2D(const int nodeInd1, const int nodeInd2, const NodePool &nPool) {
+Vec2 getMidPoint2D(const int nodeInd1, const int nodeInd2, const NodePool &nPool) {
     Node node1 = nPool.getNode(nodeInd1);
     Node node2 = nPool.getNode(nodeInd2);
-    std::vector<double> mid{(node1.x + node2.x)/2.0, (node1.y + node2.y)/2.0};
-    return mid;
+    Vec3 mid = (node1.pos + node2.pos)*0.5;
+    return Vec2(mid.x, mid.y);
 }
 
-std::vector<double> getMidPoint2D(const Node node1, const Node node2) {
-    std::vector<double> mid{(node1.x + node2.x)/2.0, (node1.y + node2.y)/2.0};
+Vec2 getMidPoint2D(const Node node1, const Node node2) {
+    Vec2 mid{(node1.pos.x + node2.pos.x)/2.0, (node1.pos.y + node2.pos.y)/2.0};
     return mid;
 }
 
@@ -98,11 +98,13 @@ std::vector<double> getMidPoint2D(const Node node1, const Node node2) {
 double getDistance(const int nodeInd1, const int nodeInd2, const NodePool& nPool){
     Node node1 = nPool.getNode(nodeInd1);
     Node node2 = nPool.getNode(nodeInd2);
-    return std::sqrt( (node1.x - node2.x)*(node1.x - node2.x) + (node1.y - node2.y)*(node1.y - node2.y) + (node1.z - node2.z)*(node1.z - node2.z) );
+    Vec3 diff(node1.pos - node2.pos);
+    return std::sqrt( diff * diff );
 }
 
 double getDistance(const Node node1, const Node node2){
-    return std::sqrt( (node1.x - node2.x)*(node1.x - node2.x) + (node1.y - node2.y)*(node1.y - node2.y) + (node1.z - node2.z)*(node1.z - node2.z) );
+    Vec3 diff(node1.pos - node2.pos);
+    return std::sqrt( diff * diff );
 }
 
 // набор узлов: конструктор по умолчанию
@@ -127,19 +129,19 @@ EdgePool::EdgePool(int size, const std::vector<Edge>& edgeVec)
 
 
 // нормаль к вектору между двумя узлами
-std::vector<double> calculateNormalVector2D(const Node& node1, const Node& node2) {
+Vec2 calculateNormalVector2D(const Node& node1, const Node& node2) {
     // координаты вектора
-    double dx = node2.x - node1.x;
-    double dy = node2.y - node1.y;
+    double dx = node2.pos.x - node1.pos.x;
+    double dy = node2.pos.y - node1.pos.y;
 
     // нормаль к вектору (поворот на 90 градусов против часовой стрелки)
-    std::vector<double> normal = {-dy, dx};
+    Vec2 normal = {-dy, dx};
 
     // нормировка
-    double length = std::sqrt(normal[0] * normal[0] + normal[1] * normal[1]);
-    if (length > 0) {
-        normal[0] /= length;
-        normal[1] /= length;
+    double length = std::sqrt(normal*normal);
+    if (std::fabs(length) > 1e-17) {
+        normal.x /= length;
+        normal.y /= length;
     }
     return normal;
 }
@@ -201,14 +203,14 @@ EdgePool::EdgePool(const NodePool& np, ElementPool& ep) {
         }
 
         // нормаль к ребру
-        std::vector<double> normalVector = calculateNormalVector2D(np.getNode(node1), np.getNode(node2));
+        Vec2 normalVector = calculateNormalVector2D(np.getNode(node1), np.getNode(node2));
 
         // середина ребра
-        std::vector<double> edgeMid = getMidPoint2D(node1, node2, np);
+        Vec2 edgeMid = getMidPoint2D(node1, node2, np);
         //std::cout << "CENTROID OF THE EL numb " << neighbor1 << " , centroid = (" << getElementCentroid2D(ep.elements[neighbor1], np)[0] << ", " <<getElementCentroid2D(ep.elements[neighbor1], np)[1]  <<") " << std::endl;
 
         // вектор, соединяющий середину элемента и середину ребра
-        std::vector<double> neighbour1ToEdgeMidVector =
+        Vec2 neighbour1ToEdgeMidVector =
                     edgeMid - ep.elements[neighbor1].centroid2D;
 
         // ориентвция ребра
@@ -509,38 +511,38 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
 
         // анализ границ
         std::cout << "Analyzing boundaries...." << std::endl;
-        minX = np.getNode(0).x;
-        maxX = np.getNode(0).x;
-        maxY = np.getNode(0).y;
-        minY = np.getNode(0).y;
+        minX = np.getNode(0).pos.x;
+        maxX = np.getNode(0).pos.x;
+        maxY = np.getNode(0).pos.y;
+        minY = np.getNode(0).pos.y;
         // определение [minX, maxX] x [minY, maxY]
         for (const auto& node: np.nodes) {
-            if(node.x > maxX){
-                maxX = node.x;
+            if(node.pos.x > maxX){
+                maxX = node.pos.x;
             }
-            else if(node.x < minX){
-                maxX = node.x;
+            else if(node.pos.x < minX){
+                maxX = node.pos.x;
             }
-            if(node.y > maxY){
-                maxY = node.y;
+            if(node.pos.y > maxY){
+                maxY = node.pos.y;
             }
-            else if(node.y < minY) {
-                minY = node.y;
+            else if(node.pos.y < minY) {
+                minY = node.pos.y;
             }
         }
 
         // собираем граничные узлы
         for(const auto& node: np.nodes){
-            if(std::abs(node.x - maxX) < 1e-15){
+            if(std::abs(node.pos.x - maxX) < 1e-15){
                 boundaryRightNodes.push_back(node.ind);
             }
-            else if(std::abs(node.x - minX) < 1e-15){
+            else if(std::abs(node.pos.x - minX) < 1e-15){
                 boundaryLeftNodes.push_back(node.ind);
             }
-            if(std::abs(node.y - maxY) < 1e-15){
+            if(std::abs(node.pos.y - maxY) < 1e-15){
                 boundaryTopNodes.push_back(node.ind);
             }
-            else if(std::abs(node.y - minY) < 1e-15){
+            else if(std::abs(node.pos.y - minY) < 1e-15){
                 boundaryBottomNodes.push_back(node.ind);
             }
         }
@@ -553,7 +555,7 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
                 ns.boundaryNodeTopToBottom[nodeTop.ind] = -1;
                 for(const auto& indBot: boundaryBottomNodes){
                     const auto nodeBot = np.getNode(indBot);
-                    if(std::abs(nodeTop.x - nodeBot.x) < 1e-10){
+                    if(std::abs(nodeTop.pos.x - nodeBot.pos.x) < 1e-10){
                         ns.boundaryNodeTopToBottom[nodeTop.ind] = nodeBot.ind;
                     }
                 }
@@ -572,7 +574,7 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
                 ns.boundaryNodeLeftToRight[nodeLeft.ind] = -1;
                 for(const auto& indRight: boundaryRightNodes){
                     const auto nodeRight = np.getNode(indRight);
-                    if(std::abs(nodeLeft.y - nodeRight.y) < 1e-8){
+                    if(std::abs(nodeLeft.pos.y - nodeRight.pos.y) < 1e-8){
                         ns.boundaryNodeLeftToRight[nodeLeft.ind] = nodeRight.ind;
                     }
                 }
@@ -670,8 +672,8 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
                                         getDistance(node1st, reflNode),
                                         calculateNormalVector2D(node1st, reflNode),
                                         getMidPoint2D(node1st, reflNode));
-                        if(std::abs(1.0-std::sqrt(ghostEdge1.normalVector[0]*ghostEdge1.normalVector[0] + ghostEdge1.normalVector[1]*ghostEdge1.normalVector[1])) > 1e-15){
-                            std::cout << "bad normal while creating a ghost edge! normal = { " << ghostEdge1.normalVector[0] << " , " << ghostEdge1.normalVector[1] << " }"<<std::endl;
+                        if(std::fabs(1.0-std::sqrt(ghostEdge1.normalVector * ghostEdge1.normalVector)) > 1e-15){
+                            std::cout << "bad normal while creating a ghost edge! normal = { " << ghostEdge1.normalVector.x << " , " << ghostEdge1.normalVector.y << " }"<<std::endl;
                         }
                         ghostEdge1.is_ghost = true;
 
@@ -692,7 +694,7 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
                                         getDistance(reflNode, node2nd),
                                         calculateNormalVector2D(reflNode, node2nd),
                                         getMidPoint2D(reflNode, node2nd));
-                        if(std::abs(1.0-std::sqrt(ghostEdge2.normalVector[0]*ghostEdge2.normalVector[0] + ghostEdge2.normalVector[1]*ghostEdge2.normalVector[1])) > 1e-15){
+                        if(std::abs(1.0-std::sqrt(ghostEdge2.normalVector*ghostEdge2.normalVector)) > 1e-15){
                             std::cout << "bad normal while creating a ghost edge!" <<std::endl;
                         }
                         ghostEdge2.is_ghost = true;
@@ -761,7 +763,7 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
 
         for(auto& edge: edgp.edges){
             Element neig1 = ep.elements[edge.neighbourInd1];
-            std::vector<double> cToe = edge.midPoint - neig1.centroid2D;
+            Vec2 cToe = edge.midPoint - neig1.centroid2D;
             double orient =cToe * edge.normalVector;
             if(std::abs(orient) < 1e-15){
                 std::cerr << "BAD SCALAR MULT OF VECTORS IN NORMAL CHECK!!!" << std::endl;
@@ -792,7 +794,7 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
             int cnt = 0;
             for(auto& edgeIndex: elem.edgeIndexes){
                 Edge edge = edgp.edges[edgeIndex];
-                std::vector<double> cToe = edge.midPoint - elem.centroid2D;
+                Vec2 cToe = edge.midPoint- elem.centroid2D;
                 double orient = cToe * edge.normalVector;
                 if(std::abs(orient) < 1e-15){
                     std::cerr << "BAD SCALAR MULT OF VECTORS IN NORMAL CHECK!!!" << std::endl;
@@ -831,7 +833,7 @@ void World::display() const {
     std::cout << "Total Nodes: " << np.nodeCount << std::endl;
     for (const auto& node : np.nodes) {
         std::cout << "Node Index: " << node.ind << ", Coordinates: ("
-                  << node.x << ", " << node.y << ", " << node.z << ")" << std::endl;
+                  << node.pos.x << ", " << node.pos.y << ", " << node.pos.z << ")" << std::endl;
     }
 
     // Display Element Pool
@@ -858,8 +860,8 @@ void World::display() const {
                   << edge.nodeInd1 << ", " << edge.nodeInd2 << "), "
                   << "Neighbors: (" << edge.neighbourInd1 << ", " << edge.neighbourInd2 << ")"
                   << ", Normal: ("
-                  << edge.normalVector[0] << ", " << edge.normalVector[1] << "), len = "
-                  << edge.length << ", MidPoint = ("<< edge.midPoint[0] << ", "<< edge.midPoint[1] << ")"<<std::endl;
+                  << edge.normalVector.x << ", " << edge.normalVector.y << "), len = "
+                  << edge.length << ", MidPoint = ("<< edge.midPoint.x << ", "<< edge.midPoint.y << ")"<<std::endl;
     }
 
     // Display Neighbor Information for Nodes, Edges, and Elements
@@ -885,9 +887,9 @@ void World::exportToFile(const string &filename) const{
     file.write(reinterpret_cast<const char*>(&nodeCount), sizeof(nodeCount));
     for (const auto& node : np.nodes) {
         file.write(reinterpret_cast<const char*>(&node.ind), sizeof(node.ind));
-        file.write(reinterpret_cast<const char*>(&node.x), sizeof(node.x));
-        file.write(reinterpret_cast<const char*>(&node.y), sizeof(node.y));
-        file.write(reinterpret_cast<const char*>(&node.z), sizeof(node.z));
+        file.write(reinterpret_cast<const char*>(&node.pos.x), sizeof(node.pos.x));
+        file.write(reinterpret_cast<const char*>(&node.pos.y), sizeof(node.pos.y));
+        file.write(reinterpret_cast<const char*>(&node.pos.z), sizeof(node.pos.z));
         file.write(reinterpret_cast<const char*>(&node.is_ghost), sizeof(node.is_ghost));
     }
 
@@ -907,7 +909,7 @@ void World::exportToFile(const string &filename) const{
             std::cout << "Elem's nodes are: ";
             for(const auto& ind: element.nodeIndexes){
                 Node curnode = np.getNode(ind);
-                std::cout << ind << "( "<< curnode.x << ", " << curnode.y << ", " << curnode.z << " ); ";
+                std::cout << ind << "( "<< curnode.pos.x << ", " << curnode.pos.y << ", " << curnode.pos.z << " ); ";
             }
 
             std::cout << std::endl;
@@ -917,9 +919,10 @@ void World::exportToFile(const string &filename) const{
         }
         double area = element.area;
         file.write(reinterpret_cast<const char*>(&area), sizeof(area));
-        for (const auto& coord : element.centroid2D) {
-            file.write(reinterpret_cast<const char*>(&coord), sizeof(coord));
-        }
+
+        file.write(reinterpret_cast<const char*>(&element.centroid2D.x), sizeof(element.centroid2D.x));
+        file.write(reinterpret_cast<const char*>(&element.centroid2D.y), sizeof(element.centroid2D.y));
+
         bool is_boundary = element.is_boundary;
         file.write(reinterpret_cast<const char*>(&is_boundary), sizeof(is_boundary));
         bool is_ghost = element.is_ghost;
@@ -936,12 +939,14 @@ void World::exportToFile(const string &filename) const{
         file.write(reinterpret_cast<const char*>(&edge.neighbourInd1), sizeof(edge.neighbourInd1));
         file.write(reinterpret_cast<const char*>(&edge.neighbourInd2), sizeof(edge.neighbourInd2));
         file.write(reinterpret_cast<const char*>(&edge.length), sizeof(edge.length));
-        for (const auto& val : edge.normalVector) {
-            file.write(reinterpret_cast<const char*>(&val), sizeof(val));
-        }
-        for (const auto& val : edge.midPoint) {
-            file.write(reinterpret_cast<const char*>(&val), sizeof(val));
-        }
+
+        file.write(reinterpret_cast<const char*>(&edge.normalVector.x), sizeof(edge.normalVector.x));
+        file.write(reinterpret_cast<const char*>(&edge.normalVector.y), sizeof(edge.normalVector.y));
+
+
+        file.write(reinterpret_cast<const char*>(&edge.midPoint.x), sizeof(edge.midPoint.x));
+        file.write(reinterpret_cast<const char*>(&edge.midPoint.y), sizeof(edge.midPoint.y));
+
         file.write(reinterpret_cast<const char*>(&edge.is_ghost), sizeof(edge.is_ghost));
     }
 
@@ -1069,9 +1074,9 @@ void World::importFromFile(const string &filename) {
     std::vector<Node> nodes(nodeCount);
     for (auto& node : nodes) {
         file.read(reinterpret_cast<char*>(&node.ind), sizeof(node.ind));
-        file.read(reinterpret_cast<char*>(&node.x), sizeof(node.x));
-        file.read(reinterpret_cast<char*>(&node.y), sizeof(node.y));
-        file.read(reinterpret_cast<char*>(&node.z), sizeof(node.z));
+        file.read(reinterpret_cast<char*>(&node.pos.x), sizeof(node.pos.x));
+        file.read(reinterpret_cast<char*>(&node.pos.y), sizeof(node.pos.y));
+        file.read(reinterpret_cast<char*>(&node.pos.z), sizeof(node.pos.z));
         file.read(reinterpret_cast<char*>(&node.is_ghost), sizeof(node.is_ghost));
     }
     np = NodePool(nodeCount, nodes);
@@ -1094,10 +1099,10 @@ void World::importFromFile(const string &filename) {
             file.read(reinterpret_cast<char*>(&edgeIndex), sizeof(edgeIndex));
         }
         file.read(reinterpret_cast<char*>(&element.area), sizeof(element.area));
-        element.centroid2D.resize(2);
-        for (auto& coord : element.centroid2D) {
-            file.read(reinterpret_cast<char*>(&coord), sizeof(coord));
-        }
+
+        file.read(reinterpret_cast<char*>(&element.centroid2D.x), sizeof(element.centroid2D.x));
+        file.read(reinterpret_cast<char*>(&element.centroid2D.y), sizeof(element.centroid2D.y));
+
         file.read(reinterpret_cast<char*>(&element.is_boundary), sizeof(element.is_boundary));
         file.read(reinterpret_cast<char*>(&element.is_ghost), sizeof(element.is_ghost));
     }
@@ -1114,14 +1119,13 @@ void World::importFromFile(const string &filename) {
         file.read(reinterpret_cast<char*>(&edge.neighbourInd1), sizeof(edge.neighbourInd1));
         file.read(reinterpret_cast<char*>(&edge.neighbourInd2), sizeof(edge.neighbourInd2));
         file.read(reinterpret_cast<char*>(&edge.length), sizeof(edge.length));
-        edge.normalVector.resize(2);
-        for (auto& val : edge.normalVector) {
-            file.read(reinterpret_cast<char*>(&val), sizeof(val));
-        }
-        edge.midPoint.resize(2);
-        for (auto& val : edge.midPoint) {
-            file.read(reinterpret_cast<char*>(&val), sizeof(val));
-        }
+
+        file.read(reinterpret_cast<char*>(&edge.normalVector.x), sizeof(edge.normalVector.x));
+        file.read(reinterpret_cast<char*>(&edge.normalVector.y), sizeof(edge.normalVector.y));
+
+        file.read(reinterpret_cast<char*>(&edge.midPoint.x), sizeof(edge.midPoint.x));
+        file.read(reinterpret_cast<char*>(&edge.midPoint.y), sizeof(edge.midPoint.y));
+
         file.read(reinterpret_cast<char*>(&edge.is_ghost), sizeof(edge.is_ghost));
     }
     edgp = EdgePool(edgeCount, edges);
@@ -1298,12 +1302,12 @@ void setNeighbourEdge(Element& el, const int edgeInd){
 
 std::vector<double> reflectNodeOverVector(const Node& nodeToReflect, const Node& node1, const Node& node2){
 
-    double x1 = node1.x;
-    double y1 = node1.y;
-    double x2 = node2.x;
-    double y2 = node2.y;
-    double x3 = nodeToReflect.x; // point to reflect
-    double y3 = nodeToReflect.y; // point to reflect
+    double x1 = node1.pos.x;
+    double y1 = node1.pos.y;
+    double x2 = node2.pos.x;
+    double y2 = node2.pos.y;
+    double x3 = nodeToReflect.pos.x; // point to reflect
+    double y3 = nodeToReflect.pos.y; // point to reflect
 
     double ab_x = x2 - x1;
     double ab_y = y2 - y1;
@@ -1332,12 +1336,12 @@ std::vector<double> reflectNodeOverVector(const Node& nodeToReflect, const Node&
 bool World::isCounterClockwise(const std::vector<Node> &nodes) {
     double sum = 0.0;
     if(nodes.size() == 3){
-        sum = (nodes[1].x * nodes[2].y - nodes[2].x * nodes[1].y) - (nodes[0].x * nodes[2].y - nodes[0].y * nodes[2].x) + (nodes[0].x*nodes[1].y - nodes[1].x*nodes[0].y);
+        sum = (nodes[1].pos.x * nodes[2].pos.y - nodes[2].pos.x * nodes[1].pos.y) - (nodes[0].pos.x * nodes[2].pos.y - nodes[0].pos.y * nodes[2].pos.x) + (nodes[0].pos.x*nodes[1].pos.y - nodes[1].pos.x*nodes[0].pos.y);
     }else{
         for (size_t i = 0; i < nodes.size(); ++i) {
             Node n1 = nodes[i];
             Node n2 = nodes[(i + 1) % nodes.size()];
-            sum += (n2.x - n1.x) * (n2.y + n1.y);
+            sum += (n2.pos.x - n1.pos.x) * (n2.pos.y + n1.pos.y);
         }
     }
     return sgn(sum) > 0.0; // CCW if sum > 0
