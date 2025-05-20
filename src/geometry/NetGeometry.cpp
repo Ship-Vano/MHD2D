@@ -185,7 +185,9 @@ EdgePool::EdgePool(const NodePool& np, ElementPool& ep) {
     }
 
     // 3. Резервирование памяти для результатов
-    edges.reserve(edgeMap.size());
+    int edgeMap_size = edgeMap.size();
+    edges.reserve(edgeMap_size);
+    edgeLookup.reserve(edgeMap_size * 2);
 
     for (const auto& [edgeKey, neighbors] : edgeMap) {
         auto [node1, node2] = edgeKey;
@@ -232,10 +234,22 @@ EdgePool::EdgePool(const NodePool& np, ElementPool& ep) {
         minEdgeLen = std::min(minEdgeLen, len > 1e-16 ? len : minEdgeLen);
 
         edges.emplace_back(edgeIndex++, node1, node2, neighbor1, neighbor2, len, normal, mid);
+
+        edgeLookup.emplace_back(std::make_pair(node1, node2), edgeIndex);
+        edgeLookup.emplace_back(std::make_pair(node2, node1), edgeIndex);
     }
 
     edgeCount = edges.size();
-}                                                                                                                                                                                        ////ЖЁТСКИЙ КОСТЫЛЬ, УБЕРУ ПОТОМ , КОГДА БУДЕТ МЕСТО НА BOOST
+
+    // Параллельная сортировка
+#pragma omp parallel
+    {
+#pragma omp single
+        std::sort(edgeLookup.begin(), edgeLookup.end());
+    }
+}
+
+////ЖЁТСКИЙ КОСТЫЛЬ, УБЕРУ ПОТОМ , КОГДА БУДЕТ МЕСТО НА BOOST
 //    // хэширование пары (для создания map из пар)
 //    namespace std {
 //        template <typename T1, typename T2>
@@ -368,8 +382,10 @@ ElementPool World::getElementPool() const {
 
 /*NEIGHBOUR SERVICE*/
 NeighbourService::NeighbourService(const NodePool& np, const ElementPool& ep, const EdgePool& edgePool) {
+
     // выделяем место под maps
     nodeToElements.reserve(np.nodeCount);
+    nodeToElements.resize(np.nodeCount);
     edgeToElements.reserve(edgePool.edgeCount);
     elementToElements.reserve(ep.elCount);
     nodeToEdgesMap.reserve(np.nodeCount);
@@ -377,18 +393,52 @@ NeighbourService::NeighbourService(const NodePool& np, const ElementPool& ep, co
     boundaryNodeTopToBottom.reserve(np.nodeCount / 4);
 
     // map узел -> соседи-элементы
-#pragma omp parallel for
-    for (int i = 0; i < ep.elements.size(); ++i) {
-        const auto& element = ep.elements[i];
+//#pragma omp parallel for
+//    for (int i = 0; i < ep.elements.size(); ++i) {
+//        const auto& element = ep.elements[i];
+//
+//        // thread-safe update
+//        for (int nodeIndex : element.nodeIndexes) {
+//#pragma omp critical(nodeToElements)
+//            {
+//                nodeToElements[nodeIndex].insert(element.ind);
+//            }
+//        }
+//
+//    }
 
-        // thread-safe update
-        for (int nodeIndex : element.nodeIndexes) {
-#pragma omp critical(nodeToElements)
-            {
-                nodeToElements[nodeIndex].insert(element.ind);
+    // Параллельное заполнение nodeToElements
+#pragma omp parallel
+    {
+        // Локальный буфер для каждого потока
+        std::vector<std::vector<int>> local_node_elements(np.nodeCount);
+
+#pragma omp for
+        for (size_t i = 0; i < ep.elements.size(); ++i) {
+            for (int node : ep.elements[i].nodeIndexes) {
+                local_node_elements[node].push_back(ep.elements[i].ind);
             }
         }
 
+        // Объединение результатов
+#pragma omp critical
+        {
+            for (size_t node = 0; node < np.nodeCount; ++node) {
+                nodeToElements[node].insert(
+                        nodeToElements[node].end(),
+                        local_node_elements[node].begin(),
+                        local_node_elements[node].end()
+                );
+            }
+        }
+    }
+
+    // Сортировка и удаление дубликатов
+#pragma omp parallel for
+    for (size_t node = 0; node < np.nodeCount; ++node) {
+        auto& vec = nodeToElements[node];
+        std::sort(vec.begin(), vec.end());
+        vec.erase(std::unique(vec.begin(), vec.end()), vec.end());
     }
 
     // map узел -> соседи-рёбра
@@ -424,8 +474,9 @@ std::vector<int> NeighbourService::getEdgeNeighborsOfNode(int nodeIndex) const {
     return {};
 }
 
-std::unordered_set<int> NeighbourService::getNodeNeighbours(int nodeIndex) const {
-    return nodeToElements.at(nodeIndex);
+/*std::unordered_set<int>*/std::vector<int> NeighbourService::getNodeNeighbours(int nodeIndex) const {
+    //return nodeToElements.at(nodeIndex);
+    return nodeToElements[nodeIndex];
 }
 
 std::unordered_set<int> NeighbourService::getEdgeNeighbours(int edgeIndex) const {
@@ -452,14 +503,14 @@ void NeighbourService::displayNeighbours() const {
     std::cout << "\n--- Neighbours ---" << std::endl;
 
     // Node to Element Neighbours
-    std::cout << "\nNode to Element Neighbours:" << std::endl;
-    for (const auto& [node, elements] : nodeToElements) {
-        std::cout << "Node " << node << ": ";
-        for (int elem : elements) {
-            std::cout << elem << " ";
-        }
-        std::cout << std::endl;
-    }
+//    std::cout << "\nNode to Element Neighbours:" << std::endl;
+//    for (const auto& [node, elements] : nodeToElements) {
+//        std::cout << "Node " << node << ": ";
+//        for (int elem : elements) {
+//            std::cout << elem << " ";
+//        }
+//        std::cout << std::endl;
+//    }
 
     // Element to Element Neighbours
     std::cout << "\nElement to Element Neighbours:" << std::endl;
@@ -1443,4 +1494,20 @@ bool World::isCounterClockwise(const std::vector<int> &nodeIndices, const NodePo
         nodes[i] = np.getNode(nodeIndices[i]);
     }
     return isCounterClockwise(nodes);
+}
+
+
+// Бинарный поиск
+int EdgePool::findEdgeByNodes(int n1, int n2) const {
+    auto it = std::lower_bound(edgeLookup.begin(), edgeLookup.end(),
+                               std::make_pair(std::make_pair(n1, n2), 0));
+    return (it != edgeLookup.end() && it->first == std::make_pair(n1, n2)) ? it->second : -1;
+}
+
+
+#pragma omp declare simd
+double fastDistance(const Node& a, const Node& b) {
+    double dx = a.pos.x - b.pos.x;
+    double dy = a.pos.y - b.pos.y;
+    return std::sqrt(dx*dx + dy*dy);
 }
