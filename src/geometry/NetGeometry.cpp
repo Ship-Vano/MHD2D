@@ -146,113 +146,202 @@ Vec2 calculateNormalVector2D(const Node& node1, const Node& node2) {
     return normal;
 }
 
-                                                                                                                                                                                        ////ЖЁТСКИЙ КОСТЫЛЬ, УБЕРУ ПОТОМ , КОГДА БУДЕТ МЕСТО НА BOOST
-    // хэширование пары (для создания map из пар)
-    namespace std {
-        template <typename T1, typename T2>
-        struct hash<std::pair<T1, T2>> {
-            size_t operator()(const std::pair<T1, T2>& p) const {
-                auto h1 = std::hash<T1>{}(p.first);
-                auto h2 = std::hash<T2>{}(p.second);
-                return h1 ^ (h2 << 1); // Combine the two hash values
-            }
-        };
-    }
 
-// набор рёбер: конструктор из набора узлов и набора элементов
+
+// Улучшенная хеш-функция для пар
+namespace std {
+    template <typename T1, typename T2>
+    struct hash<std::pair<T1, T2>> {
+        size_t operator()(const std::pair<T1, T2>& p) const {
+            auto h1 = hash<T1>{}(p.first);
+            auto h2 = hash<T2>{}(p.second);
+            // Улучшенная комбинация хешей (по аналогии с boost::hash_combine)
+            h1 ^= h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2);
+            return h1;
+        }
+    };
+}
+
 EdgePool::EdgePool(const NodePool& np, ElementPool& ep) {
-    std::unordered_map<std::pair<int, int>, std::unordered_set<int>, std::hash<std::pair<int, int>>> edgeMap;
+    std::unordered_map<std::pair<int, int>, std::unordered_set<int>> edgeMap;
     int edgeIndex = 0;
-    minEdgeLen = 10000000.0;
+    minEdgeLen = std::numeric_limits<double>::max();
 
-    // проходимся по каждому элементу
+    // 1. Оптимизация: предполагаем, что все элементы - треугольники (dim=3)
+    constexpr int dim = 3;
+
+    // 2. Предварительный расчёт ожидаемого количества рёбер для резервирования
+    edgeMap.reserve(ep.elements.size() * dim / 2); // Эвристика: ~1.5 ребра на элемент
+
     for (const auto& element : ep.elements) {
-        int dim = element.dim;
-        /*if(dim != 3){
-            std::cout << "dim != 3" << std::endl;
-        }*/
+        const auto& nodes = element.nodeIndexes;
         for (int i = 0; i < dim; ++i) {
-            int node1 = element.nodeIndexes[i];
-            int node2 = element.nodeIndexes[(i + 1) % dim]; // для цикличности связей (0->1; 1->2; 2->0)
-            if (node1 > node2) std::swap(node1, node2); // упорядочивание по возрастанию
-            auto edgeKey = std::make_pair(node1, node2); // ключ для ребра (по двум узлам находим элементы-соседей)
-            edgeMap[edgeKey].insert(element.ind); // вставляем элемент в map
+            int node1 = nodes[i];
+            int node2 = nodes[(i + 1) % dim];
+            if (node1 > node2)
+                std::swap(node1, node2);
+            edgeMap[{node1, node2}].insert(element.ind);
         }
     }
 
-    // проходимся по map из рёбер
-    for (const auto& edgeEntry : edgeMap) {
-        int node1 = edgeEntry.first.first; // первый узел ребра
-        int node2 = edgeEntry.first.second; // второй узел ребра
-        const auto& neighbors = edgeEntry.second; // соседние элементы
-        int neighbor1 = -1, neighbor2 = -1; // индексы соседних элементов
+    // 3. Резервирование памяти для результатов
+    edges.reserve(edgeMap.size());
 
-        //проходимся по set из элементов, получаем индексы (если они есть)
+    for (const auto& [edgeKey, neighbors] : edgeMap) {
+        auto [node1, node2] = edgeKey;
+        int neighbor1 = -1, neighbor2 = -1;
+
         auto it = neighbors.begin();
         if (it != neighbors.end()) {
             neighbor1 = *it;
-            ++it;
-            if (it != neighbors.end()) {
+            if (++it != neighbors.end())
                 neighbor2 = *it;
-            }
         }
 
-        // делаем индекс первого соседа граничного ребра существующим (2-й сосед = -1, тк его нет)
-        if(neighbor1 == -1){
-            std::swap(neighbor1,neighbor2);
+        // 4. Оптимизация: убрать лишний свап для neighbor1
+        if (neighbor1 == -1)
+            std::swap(neighbor1, neighbor2);
+
+        // 5. Быстрый поиск позиций узлов в элементе
+        const auto& elemNodes = ep.elements[neighbor1].nodeIndexes;
+        int pos1 = -1, pos2 = -1;
+        for (int i = 0; i < dim; ++i) {
+            if (elemNodes[i] == node1) pos1 = i;
+            if (elemNodes[i] == node2) pos2 = i;
         }
 
-        // нормаль к ребру
-        Vec2 normalVector = calculateNormalVector2D(np.getNode(node1), np.getNode(node2));
-
-        // середина ребра
-        Vec2 edgeMid = getMidPoint2D(node1, node2, np);
-        //std::cout << "CENTROID OF THE EL numb " << neighbor1 << " , centroid = (" << getElementCentroid2D(ep.elements[neighbor1], np)[0] << ", " <<getElementCentroid2D(ep.elements[neighbor1], np)[1]  <<") " << std::endl;
-
-        // вектор, соединяющий середину элемента и середину ребра
-        Vec2 neighbour1ToEdgeMidVector =
-                    edgeMid - ep.elements[neighbor1].centroid2D;
-
-        // ориентвция ребра
-        int orientation = 1;
-        orientation = sgn(normalVector * neighbour1ToEdgeMidVector); // скалярное произведение нормали и вектора центр-середина
-                                                                                                            //     nei1->nei2
-        // корректируем нормаль  (нормаль будет идти от первого соседа ко второму)                                  <| -> |>
-        if(orientation < 0){
-            normalVector = normalVector * (-1);
-            orientation = 1;
-        }
-
-        // меняем порядок узлов, составляющих ребро для обеспечения правильной ориентации
-        const auto &elementNodes = ep.elements[neighbor1].nodeIndexes; // узлы первого соседа
-        auto itNode1 = std::find(elementNodes.begin(), elementNodes.end(), node1); // позиция первого узла в векторе индексов элемента (первый сосед)
-        auto itNode2 = std::find(elementNodes.begin(), elementNodes.end(), node2); // позиция второго узла в векторе индексов элемента (первый сосед)
-
-        // индексы узлов в элементе пронумерованы против часовой стрелки.
-        // делаем проверку: первый узел ребра идёт после второго узла ребра в элементе (первом соседе), то меняем их местами в ребре
-        if ((itNode1 > itNode2) && !(itNode1 == elementNodes.end()-1 && itNode2 == elementNodes.begin()) ) {
-            std::swap(node1, node2); // Swap nodes to ensure counterclockwise order
-            //std::cout << "swap1 EdgeIndex is " << edgeIndex << std::endl;
-        }
-        else if(itNode2 == elementNodes.end()-1 && itNode1 == elementNodes.begin()){
+        // 6. Оптимизированная проверка порядка узлов
+        if ((pos1 > pos2 && !(pos1 == dim-1 && pos2 == 0)) ||
+            (pos1 == 0 && pos2 == dim-1)) {
             std::swap(node1, node2);
-            //std::cout << "swap2 EdgeIndex is " << edgeIndex << std::endl;
         }
 
-        // вычисляем длину ребра
+        Vec2 normal = calculateNormalVector2D(np.getNode(node1), np.getNode(node2));
+        Vec2 mid = getMidPoint2D(node1, node2, np);
+
+        // 7. Оптимизация: кэшируем центроид
+        const auto& centroid = ep.elements[neighbor1].centroid2D;
+        Vec2 vec = mid - centroid;
+
+        // 8. Корректировка нормали без ветвления
+        int orientation = sgn(normal * vec);
+        normal = normal *  ((orientation < 0) ? -1.0 : 1.0);
+
+        // 9. Оптимизация вычисления длины
         double len = getDistance(node1, node2, np);
-        if(len < minEdgeLen && len > 1e-16){
-            minEdgeLen = len;
-        }
+        minEdgeLen = std::min(minEdgeLen, len > 1e-16 ? len : minEdgeLen);
 
-        // создаём ребро и помещаем в общий набор
-        edges.emplace_back(edgeIndex, node1, node2, neighbor1, neighbor2, len, normalVector, edgeMid);
-
-        ++edgeIndex;
+        edges.emplace_back(edgeIndex++, node1, node2, neighbor1, neighbor2, len, normal, mid);
     }
 
-    edgeCount = edges.size();  // задаём общее количество рёбер
-}
+    edgeCount = edges.size();
+}                                                                                                                                                                                        ////ЖЁТСКИЙ КОСТЫЛЬ, УБЕРУ ПОТОМ , КОГДА БУДЕТ МЕСТО НА BOOST
+//    // хэширование пары (для создания map из пар)
+//    namespace std {
+//        template <typename T1, typename T2>
+//        struct hash<std::pair<T1, T2>> {
+//            size_t operator()(const std::pair<T1, T2>& p) const {
+//                auto h1 = std::hash<T1>{}(p.first);
+//                auto h2 = std::hash<T2>{}(p.second);
+//                return h1 ^ (h2 << 1); // Combine the two hash values
+//            }
+//        };
+//    }
+//
+//// набор рёбер: конструктор из набора узлов и набора элементов
+//EdgePool::EdgePool(const NodePool& np, ElementPool& ep) {
+//    std::unordered_map<std::pair<int, int>, std::unordered_set<int>, std::hash<std::pair<int, int>>> edgeMap;
+//    int edgeIndex = 0;
+//    minEdgeLen = 10000000.0;
+//
+//    // проходимся по каждому элементу
+//    for (const auto& element : ep.elements) {
+//        int dim = element.dim;
+//        /*if(dim != 3){
+//            std::cout << "dim != 3" << std::endl;
+//        }*/
+//        for (int i = 0; i < dim; ++i) {
+//            int node1 = element.nodeIndexes[i];
+//            int node2 = element.nodeIndexes[(i + 1) % dim]; // для цикличности связей (0->1; 1->2; 2->0)
+//            if (node1 > node2) std::swap(node1, node2); // упорядочивание по возрастанию
+//            auto edgeKey = std::make_pair(node1, node2); // ключ для ребра (по двум узлам находим элементы-соседей)
+//            edgeMap[edgeKey].insert(element.ind); // вставляем элемент в map
+//        }
+//    }
+//
+//    // проходимся по map из рёбер
+//    for (const auto& edgeEntry : edgeMap) {
+//        int node1 = edgeEntry.first.first; // первый узел ребра
+//        int node2 = edgeEntry.first.second; // второй узел ребра
+//        const auto& neighbors = edgeEntry.second; // соседние элементы
+//        int neighbor1 = -1, neighbor2 = -1; // индексы соседних элементов
+//
+//        //проходимся по set из элементов, получаем индексы (если они есть)
+//        auto it = neighbors.begin();
+//        if (it != neighbors.end()) {
+//            neighbor1 = *it;
+//            ++it;
+//            if (it != neighbors.end()) {
+//                neighbor2 = *it;
+//            }
+//        }
+//
+//        // делаем индекс первого соседа граничного ребра существующим (2-й сосед = -1, тк его нет)
+//        if(neighbor1 == -1){
+//            std::swap(neighbor1,neighbor2);
+//        }
+//
+//        // нормаль к ребру
+//        Vec2 normalVector = calculateNormalVector2D(np.getNode(node1), np.getNode(node2));
+//
+//        // середина ребра
+//        Vec2 edgeMid = getMidPoint2D(node1, node2, np);
+//        //std::cout << "CENTROID OF THE EL numb " << neighbor1 << " , centroid = (" << getElementCentroid2D(ep.elements[neighbor1], np)[0] << ", " <<getElementCentroid2D(ep.elements[neighbor1], np)[1]  <<") " << std::endl;
+//
+//        // вектор, соединяющий середину элемента и середину ребра
+//        Vec2 neighbour1ToEdgeMidVector =
+//                    edgeMid - ep.elements[neighbor1].centroid2D;
+//
+//        // ориентвция ребра
+//        int orientation = 1;
+//        orientation = sgn(normalVector * neighbour1ToEdgeMidVector); // скалярное произведение нормали и вектора центр-середина
+//                                                                                                            //     nei1->nei2
+//        // корректируем нормаль  (нормаль будет идти от первого соседа ко второму)                                  <| -> |>
+//        if(orientation < 0){
+//            normalVector = normalVector * (-1);
+//            orientation = 1;
+//        }
+//
+//        // меняем порядок узлов, составляющих ребро для обеспечения правильной ориентации
+//        const auto &elementNodes = ep.elements[neighbor1].nodeIndexes; // узлы первого соседа
+//        auto itNode1 = std::find(elementNodes.begin(), elementNodes.end(), node1); // позиция первого узла в векторе индексов элемента (первый сосед)
+//        auto itNode2 = std::find(elementNodes.begin(), elementNodes.end(), node2); // позиция второго узла в векторе индексов элемента (первый сосед)
+//
+//        // индексы узлов в элементе пронумерованы против часовой стрелки.
+//        // делаем проверку: первый узел ребра идёт после второго узла ребра в элементе (первом соседе), то меняем их местами в ребре
+//        if ((itNode1 > itNode2) && !(itNode1 == elementNodes.end()-1 && itNode2 == elementNodes.begin()) ) {
+//            std::swap(node1, node2); // Swap nodes to ensure counterclockwise order
+//            //std::cout << "swap1 EdgeIndex is " << edgeIndex << std::endl;
+//        }
+//        else if(itNode2 == elementNodes.end()-1 && itNode1 == elementNodes.begin()){
+//            std::swap(node1, node2);
+//            //std::cout << "swap2 EdgeIndex is " << edgeIndex << std::endl;
+//        }
+//
+//        // вычисляем длину ребра
+//        double len = getDistance(node1, node2, np);
+//        if(len < minEdgeLen && len > 1e-16){
+//            minEdgeLen = len;
+//        }
+//
+//        // создаём ребро и помещаем в общий набор
+//        edges.emplace_back(edgeIndex, node1, node2, neighbor1, neighbor2, len, normalVector, edgeMid);
+//
+//        ++edgeIndex;
+//    }
+//
+//    edgeCount = edges.size();  // задаём общее количество рёбер
+//}
 
 // набор элементов: конструктор из вектора элементов
 ElementPool::ElementPool(int nodesPerElement, int elCnt, const std::vector<Element>& elems)
