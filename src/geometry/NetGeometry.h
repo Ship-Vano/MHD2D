@@ -96,18 +96,14 @@ public:
     int edgeCount; // количество рёбер
     std::vector<Edge> edges; // рёбра
     double minEdgeLen; // минимальная длина ребра
-    std::vector<std::pair<std::pair<int, int>, int>> edgeLookup; // поиск ребра по нодам
     EdgePool(int size, const std::vector<Edge>& edgeVec);
     EdgePool(const NodePool& np, ElementPool& ep);
-    EdgePool() : edgeCount(0), edges(), minEdgeLen(1.0), edgeLookup() {} // Default constructor
-    // Бинарный поиск
-    int findEdgeByNodes(int n1, int n2) const;
+    EdgePool() : edgeCount(0), edges(), minEdgeLen(1.0) {} // Default constructor
 };
 
 class NeighbourService {
 public:
-    //std::unordered_map<int, std::unordered_set<int>> nodeToElements; // Nodes -> Elements (exp+)
-    std::vector<std::vector<int>> nodeToElements;
+    std::unordered_map<int, std::unordered_set<int>> nodeToElements; // Nodes -> Elements (exp+)
     std::unordered_map<int, std::vector<int>> nodeToEdgesMap;       //Nodes -> Edges  (exp+)
     std::unordered_map<int, std::unordered_set<int>> edgeToElements; // Edges -> Elements (exp+)
     std::unordered_map<int, std::unordered_set<int>> elementToElements; // Elements -> Elements (exp+)
@@ -123,7 +119,7 @@ public:
     std::unordered_map<int, int> edgeToGhostEdges; // edges to reflected ghost edges
     NeighbourService(const NodePool& np, const ElementPool& ep, const EdgePool& edgePool);
     std::vector<int> getEdgeNeighborsOfNode(int nodeIndex) const;
-    /*std::unordered_set<int>*/std::vector<int> getNodeNeighbours(int nodeIndex) const;
+    std::unordered_set<int> getNodeNeighbours(int nodeIndex) const;
     std::unordered_set<int> getEdgeNeighbours(int edgeIndex) const;
     std::unordered_set<int> getElementNeighbours(int elementIndex) const;
     std::unordered_set<int> getEdgesOfElement(int elementIndex) const;
@@ -187,7 +183,5 @@ double getDistance(const int nodeInd1, const int nodeInd2, const NodePool& nPool
 void setNeighbourEdge(Element& el, const int edgeInd);
 
 std::vector<double> reflectNodeOverVector(const Node& nodeToReflect, const Node& node1, const Node& node2);
-
-double fastDistance(const Node& a, const Node& b);
 
 #endif // MAGNETTOPRJCT_NETGEOMETRY_H

@@ -16,9 +16,12 @@ std::vector<double> state_from_primitive_vars(const std::vector<double>& primiti
 double energy(const double &gam_hcr, const double &p, const double &rho, const double &u, const double &v, const double &w, const double &Bx, const double &By, const double &Bz);
 double pressure(const double &gam_hcr, const double &e, const double &rho, const double &u, const double &v, const double &w, const double &Bx, const double &By, const double &Bz);
 double pressure(const std::vector<double> &U, const double &gam_hcr);
+double ptotal(const double &p, const double &Bx, const double &By, const double &Bz);
 double tau_from_cfl(const double& sigma, const double& h, const std::vector<std::vector<double>>& states, const int& num_space_steps, const double& gam_hcr);
 
 std::vector<double> HLL_flux(const std::vector<double>& U_L, const std::vector<double>& U_R, const double &gam_hcr);
+
+std::vector<double> HLLC_flux(const std::vector<double>& U_L, const std::vector<double>& U_R, const double &gam_hcr);
 
 std::vector<double> HLLD_flux(const std::vector<double>& U_L, const std::vector<double>& U_R, const double &gam_hcr);
 

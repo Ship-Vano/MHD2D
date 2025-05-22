@@ -1819,24 +1819,24 @@ namespace Json {
 
 #if defined(JSON_HAS_INT64)
     Value::Value( UInt value )
-   : type_( uintValue )
-   , comments_( 0 )
+            : type_( uintValue )
+            , comments_( 0 )
 # ifdef JSON_VALUE_USE_INTERNAL_MAP
-   , itemIsUsed_( 0 )
+    , itemIsUsed_( 0 )
 #endif
-{
-   value_.uint_ = value;
-}
+    {
+        value_.uint_ = value;
+    }
 
-Value::Value( Int value )
-   : type_( intValue )
-   , comments_( 0 )
+    Value::Value( Int value )
+            : type_( intValue )
+            , comments_( 0 )
 # ifdef JSON_VALUE_USE_INTERNAL_MAP
-   , itemIsUsed_( 0 )
+    , itemIsUsed_( 0 )
 #endif
-{
-   value_.int_ = value;
-}
+    {
+        value_.int_ = value;
+    }
 
 #endif // if defined(JSON_HAS_INT64)
 
@@ -2288,59 +2288,59 @@ Value::asConstString() const
 # if defined(JSON_HAS_INT64)
 
     Value::Int64
-Value::asInt64() const
-{
-   switch ( type_ )
-   {
-   case nullValue:
-      return 0;
-   case intValue:
-      return value_.int_;
-   case uintValue:
-      JSON_ASSERT_MESSAGE( value_.uint_ <= UInt64(maxInt64), "unsigned integer out of Int64 range" );
-      return value_.uint_;
-   case realValue:
-      JSON_ASSERT_MESSAGE( value_.real_ >= minInt64  &&  value_.real_ <= maxInt64, "Real out of Int64 range" );
-      return Int( value_.real_ );
-   case booleanValue:
-      return value_.bool_ ? 1 : 0;
-   case stringValue:
-   case arrayValue:
-   case objectValue:
-      JSON_FAIL_MESSAGE( "Type is not convertible to Int64" );
-   default:
-      JSON_ASSERT_UNREACHABLE;
-   }
-   return 0; // unreachable;
-}
+    Value::asInt64() const
+    {
+        switch ( type_ )
+        {
+            case nullValue:
+                return 0;
+            case intValue:
+                return value_.int_;
+            case uintValue:
+                JSON_ASSERT_MESSAGE( value_.uint_ <= UInt64(maxInt64), "unsigned integer out of Int64 range" );
+                return value_.uint_;
+            case realValue:
+                JSON_ASSERT_MESSAGE( value_.real_ >= minInt64  &&  value_.real_ <= maxInt64, "Real out of Int64 range" );
+                return Int( value_.real_ );
+            case booleanValue:
+                return value_.bool_ ? 1 : 0;
+            case stringValue:
+            case arrayValue:
+            case objectValue:
+                JSON_FAIL_MESSAGE( "Type is not convertible to Int64" );
+            default:
+                JSON_ASSERT_UNREACHABLE;
+        }
+        return 0; // unreachable;
+    }
 
 
-Value::UInt64
-Value::asUInt64() const
-{
-   switch ( type_ )
-   {
-   case nullValue:
-      return 0;
-   case intValue:
-      JSON_ASSERT_MESSAGE( value_.int_ >= 0, "Negative integer can not be converted to UInt64" );
-      return value_.int_;
-   case uintValue:
-      return value_.uint_;
-   case realValue:
-      JSON_ASSERT_MESSAGE( value_.real_ >= 0  &&  value_.real_ <= maxUInt64,  "Real out of UInt64 range" );
-      return UInt( value_.real_ );
-   case booleanValue:
-      return value_.bool_ ? 1 : 0;
-   case stringValue:
-   case arrayValue:
-   case objectValue:
-      JSON_FAIL_MESSAGE( "Type is not convertible to UInt64" );
-   default:
-      JSON_ASSERT_UNREACHABLE;
-   }
-   return 0; // unreachable;
-}
+    Value::UInt64
+    Value::asUInt64() const
+    {
+        switch ( type_ )
+        {
+            case nullValue:
+                return 0;
+            case intValue:
+                JSON_ASSERT_MESSAGE( value_.int_ >= 0, "Negative integer can not be converted to UInt64" );
+                return value_.int_;
+            case uintValue:
+                return value_.uint_;
+            case realValue:
+                JSON_ASSERT_MESSAGE( value_.real_ >= 0  &&  value_.real_ <= maxUInt64,  "Real out of UInt64 range" );
+                return UInt( value_.real_ );
+            case booleanValue:
+                return value_.bool_ ? 1 : 0;
+            case stringValue:
+            case arrayValue:
+            case objectValue:
+                JSON_FAIL_MESSAGE( "Type is not convertible to UInt64" );
+            default:
+                JSON_ASSERT_UNREACHABLE;
+        }
+        return 0; // unreachable;
+    }
 # endif // if defined(JSON_HAS_INT64)
 
 
@@ -3442,15 +3442,15 @@ namespace Json {
 #if defined(JSON_HAS_INT64)
 
     std::string valueToString( Int value )
-{
-   return valueToString( LargestInt(value) );
-}
+    {
+        return valueToString( LargestInt(value) );
+    }
 
 
-std::string valueToString( UInt value )
-{
-   return valueToString( LargestUInt(value) );
-}
+    std::string valueToString( UInt value )
+    {
+        return valueToString( LargestUInt(value) );
+    }
 
 #endif // # if defined(JSON_HAS_INT64)
 

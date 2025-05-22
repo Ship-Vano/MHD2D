@@ -7,7 +7,11 @@
 
 #include "NetGeometry.h"
 #include "MHDSolver1D.h"
+
+#ifdef USE_CUDA
 #include "MHDgpu.cuh"
+#endif
+
 #include "omp.h"
 
 #include <numbers>
@@ -61,7 +65,7 @@ public:
     void runCylindricSolver();
     void applyBoundaryConditions(NeighbourService& ns);
     void applyGhostCells2Type();
-    void applyZeroRConditions(ElementPool& elPool, EdgePool& edgePool, NodePool& nodePool);
+    void applyZeroRConditions(const ElementPool& elPool, const EdgePool& edgePool, const NodePool& nodePool, const std::vector<std::vector<double>>& elemUs_prev);
 
     double computeDivergence();
     void checkNan(bool& foundNan);

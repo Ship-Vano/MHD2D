@@ -6,7 +6,8 @@
 #include "json/json.h"
 
 int main(){
-
+    std::cout << "running solver..." << std::endl;
+    omp_set_num_threads(1);
     //TODO: move it to the global config file
     std::string configPath = "InputData/solverConfig.json";
     std::ifstream in(configPath, std::ios::in);
@@ -16,15 +17,17 @@ int main(){
     bool read_succeeded = json_reader.parse(in, json_root);
     assert(read_succeeded);
 
-    std::string importFileName = json_root.get("importFileName", "").asString();
-    std::cout << "Generating the world from " << importFileName << " file by reading it..." << std::endl;
-    bool generatedMesh = json_root.get("generatedMesh", false).asBool();
+    // std::string importFileName = json_root.get("importFileName", "").asString();
+    // std::cout << "Generating the world from " << importFileName << " file by reading it..." << std::endl;
+    // bool generatedMesh = json_root.get("generatedMesh", false).asBool();
 
-    World world = World(importFileName, true);
-    if(!generatedMesh) {
-        world = World("InputData/mesh5_100.txt", false);
-    }
+    // World world = World(importFileName, true);
+    // if(!generatedMesh) {
+    //     world = World("InputData/mesh.txt", false);
+    // }
 
+    World world = World("InputData/mesh.txt", false);
+    
     std::cout << "MINlen = "<< world.getEdgePool().minEdgeLen << std::endl;
     int taskType = json_root.get("taskType", 1).asInt();
     double finalTime = json_root.get("finalTime", 0.1).asDouble();
@@ -50,7 +53,7 @@ int main(){
 //        cudaEventCreate(&start);
 //        cudaEventCreate(&stop);
 //        cudaEventRecord(start, 0);
-//        solver.runCylindricSolver();
+       solver.runCylindricSolver();
 //        cudaEventRecord(stop, 0);
 //        cudaEventSynchronize(stop);
 //        cudaEventElapsedTime(&time, start, stop);

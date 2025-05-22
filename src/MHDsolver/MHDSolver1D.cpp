@@ -349,12 +349,12 @@ std::vector<double> HLLD_flux(const std::vector<double>& U_L, const std::vector<
     double SM_m_uL = SM - u_L;
 
     double rho_L_star = rho_L;
-    if(std::abs(SL-SM) > 1e-15) {
+    if(std::fabs(SL-SM) > 1e-16) {
         rho_L_star = rho_L * SL_m_uL / (SL - SM);
     }
 
     double rho_R_star = rho_R;
-    if(std::abs(SR-SM) > 1e-15){
+    if(std::fabs(SR-SM) > 1e-16){
         rho_R_star = rho_R * SR_m_uR / (SR - SM);
     }
 
@@ -371,7 +371,7 @@ std::vector<double> HLLD_flux(const std::vector<double>& U_L, const std::vector<
     double By_L_star = 0.0;
     double Bz_L_star = 0.0;
     double denom_L = rho_L * SL_m_uL * (SL - SM) - Bx * Bx;
-    if(std::abs(denom_L) > 1e-15){
+    if(std::fabs(denom_L) > 1e-16){
         pT_L_star = pT_star;
         u_L_star = SM;
         v_L_star = v_L - Bx * By_L * SM_m_uL/denom_L;
@@ -390,7 +390,7 @@ std::vector<double> HLLD_flux(const std::vector<double>& U_L, const std::vector<
     double By_R_star = 0.0;
     double Bz_R_star = 0.0;
     double denom_R = rho_R * SR_m_uR * (SR - SM) - Bx * Bx;
-    if(std::abs(denom_R) > 1e-15){
+    if(std::fabs(denom_R) > 1e-16){
         pT_R_star = pT_star;
         u_R_star = SM;
         v_R_star = v_R - Bx * By_R * SM_m_uR/denom_R;
