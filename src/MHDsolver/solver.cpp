@@ -29,7 +29,7 @@ int main(){
     World world = World("InputData/mesh.txt", false);
     
     std::cout << "MINlen = "<< world.getEdgePool().minEdgeLen << std::endl;
-    int taskType = json_root.get("taskType", 1).asInt();
+    int taskType = json_root.get("taskType", 2).asInt();
     double finalTime = json_root.get("finalTime", 0.1).asDouble();
     bool debugDivergence = json_root.get("debugDivergence", false).asBool();
     bool ghostOutput = json_root.get("ghostOutput", false).asBool();
