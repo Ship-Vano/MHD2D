@@ -1496,7 +1496,7 @@ void MHDSolver2D::setInitCylindricElemUs() {
             Vec2 centroid = elem.centroid2D;
             int elInd = elem.ind;
                                 /*0rho      1v_z  2v_r    3v_phi   4p   5Bz   6Br   7Bphi 8gam_hcr*/
-            std::vector<double> ini{0.0,    0.0,  0.0,    0.0,    0.0,  0.0,  0.0,  0.0, 0.0};
+            std::vector<double> ini{0.0,    0.0,  0.0,    0.0,    0.0,  0.0,  0.0,  0.0, gam_hcr};
            
             // Радиальная координата (предполагаем y >= 0)
             double r = centroid.y;
@@ -1524,7 +1524,7 @@ void MHDSolver2D::setInitCylindricElemUs() {
             Vec2 midP = edge.midPoint;
             int edgeInd = edge.ind;
             Vec2 normal = edge.normalVector;
-            std::vector<double> ini{0.0,    0.0,  0.0,    0.0,    0.0,  0.0,  0.0,  0.0, 0.0};
+            std::vector<double> ini{0.0,    0.0,  0.0,    0.0,    0.0,  0.0,  0.0,  0.0, gam_hcr};
              
             // Радиальная координата (предполагаем y >= 0)
             double r = midP.y;
@@ -1551,6 +1551,81 @@ void MHDSolver2D::setInitCylindricElemUs() {
                 initGhostBNs[ghostInd] = Bn;
             }
         }
+    } else if(task_type == 3){
+        std::cout << "SOLVING TASKTYPE 3 (MHD BLAST)" << std::endl;
+        cflNum = 0.2;
+        gam_hcr= 1.4;
+        freeFLowBoundaries = true;
+        periodicBoundaries = false;
+        freeFLowBoundaries2 = false;
+        finalTime = 0.01;
+        double Bz = 0.0;//50.0/std::sqrt(4*std::numbers::pi_v<double>);
+        std::cout << "Bz = " << Bz << std::endl;
+        double R = 0.1;
+        double R_sqr = R*R;
+        double rho = 1.0;
+        double p_ambient = 0.1;
+        double p_inner = 1000.0;
+
+        initElemUs.resize(innerElemCount, std::vector<double>(8, 0.0));
+        for (int i = 0; i < innerElemCount; ++i) {
+            Element elem = ep.elements[i];
+            Vec2 centroid = elem.centroid2D;
+            int elInd = elem.ind;
+                                /*0rho      1v_z  2v_r    3v_phi   4p   5Bz   6Br   7Bphi 8gam_hcr*/
+            std::vector<double> ini{rho,    0.0,  0.0,    0.0,    0.0,  Bz,  0.0,  0.0,  gam_hcr};
+           
+            // Радиальная координата (предполагаем y >= 0)
+            double el_r = centroid.y;
+            double el_z = centroid.x;
+            bool isInner = el_r*el_r + (el_z - 0.5)*(el_z - 0.5) <= R_sqr;
+            if(isInner){ //внутренний регион давления
+                ini[4] = p_inner;
+            }else {
+                ini[4] = p_ambient;
+            }
+        
+            initElemUs[elInd] = state_from_primitive_vars(ini);
+        }
+
+        initGhostElemUs.resize(geometryWorld.ghostElemCount, std::vector<double>(8, 0.0));
+        for(const auto& [boundary, ghost] : geometryWorld.getNeighbourService().boundaryToGhostElements){
+            int ghostInd = ghost - innerElemCount;
+            initGhostElemUs[ghostInd] = initElemUs[boundary];
+        }
+
+        initBns.resize(edgp.edgeCount, 0.0);
+        initGhostBNs.resize(geometryWorld.ghostElemCount*2, 0.0);
+        initEdgeUs.resize(edgp.edgeCount, std::vector<double>(8, 0.0));
+        for (int i = 0; i < edgp.edgeCount; ++i) {
+            Edge edge = edgp.edges[i];
+            Vec2 midP = edge.midPoint;
+            int edgeInd = edge.ind;
+            Vec2 normal = edge.normalVector;
+                                /*0rho      1v_z  2v_r    3v_phi   4p   5Bz   6Br   7Bphi 8gam_hcr*/
+            std::vector<double> ini{rho,    0.0,  0.0,    0.0,    0.0,  Bz,  0.0,  0.0,  gam_hcr};
+           
+            // Радиальная координата (предполагаем y >= 0)
+            double el_r = midP.y;
+            double el_z = midP.x;
+            bool isInner = el_r*el_r + (el_z - 0.5)*(el_z - 0.5) <= R_sqr;
+            if(isInner){ //внутренний регион давления
+                ini[4] = p_inner;
+            }else {
+                ini[4] = p_ambient;
+            }
+
+            initEdgeUs[edgeInd] = state_from_primitive_vars(ini);
+            
+            double Bn = initEdgeUs[edgeInd][5] * normal.x +initEdgeUs[edgeInd][6] * normal.y;
+            if(i < innerEdgeCount) {
+                initBns[edgeInd] = Bn;
+            }else{
+                int ghostInd = edgeInd - innerEdgeCount;
+                initGhostBNs[ghostInd] = Bn;
+            }
+        }
+        
     }
 }
 
@@ -1729,7 +1804,6 @@ void MHDSolver2D::runCylindricSolver() {
 
         // вычисляем потоки, проходящие через каждое ребро
         // инициализируем вектор потоков через рёбра // MHD (HLLD) fluxes (from one element to another "<| -> |>")
-        applyZeroRConditions(elPool, edgePool, nodePool, elemUs_prev);
 #pragma parallel for
         for (const auto &edge: edgePool.edges) {
             Element neighbour1 = elPool.elements[edge.neighbourInd1];
@@ -1909,8 +1983,8 @@ void MHDSolver2D::runCylindricSolver() {
                 }
             }*/
         }
-        applyZeroRConditions(elPool, edgePool, nodePool, elemUs_prev);
-        applyBoundaryConditions(ns);
+        //applyZeroRConditions(elPool, edgePool, nodePool, elemUs_prev);
+        //applyBoundaryConditions(ns);
         
 
 //         //корректируем магнитные величины
@@ -1945,7 +2019,7 @@ void MHDSolver2D::runCylindricSolver() {
                 //     nodeMagDiffs[node.ind] += unrotated_fluxes[neighbourEdgeInd][6];
                 //     ++tmp_count;
                 // }
-                nodeMagDiffs[node.ind] += unrotated_fluxes[neighbourEdgeInd][5];
+                nodeMagDiffs[node.ind] += unrotated_fluxes[neighbourEdgeInd][6];
                 ++tmp_count;
             }
             if (tmp_count) {
@@ -2028,8 +2102,8 @@ void MHDSolver2D::runCylindricSolver() {
                 // ghostElemUs_prev[elem.ind - innerElemCount][6] = temp_sum_By;
             }
         }
-        applyZeroRConditions(elPool, edgePool, nodePool, elemUs_prev);
-        applyBoundaryConditions(ns);
+        //applyZeroRConditions(elPool, edgePool, nodePool, elemUs_prev);
+        //applyBoundaryConditions(ns);
         //
 
         checkNan(foundNan);
