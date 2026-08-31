@@ -16,6 +16,15 @@
 
 #include <numbers>
 
+struct DivergenceMetrics {
+    double maxAbs = 0.0;
+    double maxFlux = 0.0;
+    // |Phi_K| / (B_ref * perimeter_K), with B_ref fixed at initialization.
+    double maxScaled = 0.0;
+    double referenceField = 0.0;
+    // Secondary diagnostic; omitted from acceptance gates in near-zero B.
+    double maxLocalScaled = 0.0;
+};
 
 class MHDSolver2D {
 public:
@@ -29,6 +38,11 @@ public:
     double tau = 0.0001; // шаг по времени
     double min_tau = 1e-7; // минимальный шаг по времени
     double cflNum = 0.4; // число Куранта
+    double configuredCfl = -1.0; // negative preserves a task default
+    double fieldLoopU = 2.0;
+    double fieldLoopV = 1.0;
+    double fieldLoopRadius = 0.3;
+    double fieldLoopAmplitude = 1.0e-3;
     int MAX_ITERATIONS = 1000000; // максимальное число итераций
     int iterationsPerFrame = 10; // число итераций для записи в файл
     int task_type = 1; // тип задачи
@@ -58,6 +72,10 @@ public:
     double tau_from_cfl2D(const double& sigma, const double& hx, const std::vector<std::vector<double>>& states, const double& gam_hcr);
     double tau_from_cfl2D(const double& sigma, const double& min_h, std::vector<std::vector<double>>& edgeStates, const double& gam_hcr,
                           const EdgePool& ep);
+    // Conservative first-order finite-volume CFL bound for arbitrary triangles.
+    double stableTimeStepUnstructured(const std::vector<std::vector<double>>& states,
+                                      const std::vector<double>& faceNormalB,
+                                      const double& gam_hcr);
     void setInitElemUs();
     void runSolver();
 
@@ -68,6 +86,7 @@ public:
     void applyZeroRConditions(const ElementPool& elPool, const EdgePool& edgePool, const NodePool& nodePool, const std::vector<std::vector<double>>& elemUs_prev);
 
     double computeDivergence();
+    DivergenceMetrics computeDivergenceMetrics(double referenceField = -1.0);
     void checkNan(bool& foundNan);
 
     // Начальное состояние системы
@@ -91,11 +110,27 @@ public:
 //void writeVTU(const std::string& filename, const World& geometryWorld, const std::vector<std::vector<double>>& elemUs);
 
 double computeDivergence(const std::vector<std::vector<double>>& elemUs, const EdgePool& edgePool);
+// Sign relating stored nodeInd1 -> nodeInd2 to the CT tangent
+// t_CT=(-n_y,n_x).  It is +1 for the customary CCW physical-element
+// winding, but must be applied explicitly for a valid clockwise input mesh.
+double edgeCtOrientation(const Edge& edge, const NodePool& nodePool);
+double advanceFaceNormalBFromCt(const Edge& edge, const NodePool& nodePool,
+                                double previousNormalB, double dt,
+                                double firstNodeG, double secondNodeG);
+// RT0 reconstruction at the element centroid from edge-normal magnetic
+// degrees of freedom.  faceNormalB is oriented with Edge::neighbourInd1;
+// this routine applies the opposite sign for neighbourInd2 explicitly.
+// Physical elements must reference physical edges only.
+Vec2 reconstructCellMagneticFieldRT0(const Element& element,
+                                     const NodePool& nodePool,
+                                     const EdgePool& edgePool,
+                                     const std::vector<double>& faceNormalB,
+                                     int physicalEdgeCount);
 std::vector<int> findCommonElements(const std::vector<int>& v1, const std::vector<int>& v2);
 /*                       0      1      2      3    4   5   6   7
- * U (general state):  rho,  rho*u, rho*v, rho*w,  e,  Bx, Bz, By
+ * U (general state):  rho,  rho*u, rho*v, rho*w,  e,  Bx, By, Bz
  * gasU                rho,  rho*u, rho*v, rho*w,  e
- * magU                 Bx,    Bz,    By
+ * magU                 Bx,    By,    Bz
  * */
 
 //void solverHLL2D(const World& world);

@@ -116,6 +116,11 @@ public:
     std::unordered_map<int, int> boundaryElemLeftToRight; // left boundary elements -> right boundary elements
     std::unordered_map<int, int> boundaryElemTopToBottom; // top boundary elements -> bot boundary elements
     std::unordered_map<int, int> boundaryToGhostElements; // boundary element -> ghost element
+    // A boundary triangle can touch two sides.  The historical map above is
+    // intentionally retained for compatibility but loses one corner ghost;
+    // corrected fluxes therefore use the one-to-one maps below.
+    std::unordered_map<int, int> boundaryEdgeToGhostElement;
+    std::unordered_map<int, int> ghostElementToBoundaryEdge;
     std::unordered_map<int, int> edgeToGhostEdges; // edges to reflected ghost edges
     NeighbourService(const NodePool& np, const ElementPool& ep, const EdgePool& edgePool);
     std::vector<int> getEdgeNeighborsOfNode(int nodeIndex) const;

@@ -9,6 +9,8 @@
 #include "service/LinOp.h"
 #include "service/FileIO.h"
 
+#include <cstddef>
+
 double cfast(const std::vector<double>& U, const double& gam_hcr);
 
 std::vector<double> state_from_primitive_vars(const double &rho, const double &u, const double &v, const double &w, const double &p, const double &Bx, const double &By, const double &Bz, const double &gam_hcr);
@@ -17,6 +19,7 @@ double energy(const double &gam_hcr, const double &p, const double &rho, const d
 double pressure(const double &gam_hcr, const double &e, const double &rho, const double &u, const double &v, const double &w, const double &Bx, const double &By, const double &Bz);
 double pressure(const std::vector<double> &U, const double &gam_hcr);
 double ptotal(const double &p, const double &Bx, const double &By, const double &Bz);
+std::vector<double> MHD_flux(const std::vector<double>& U, const double &gam_hcr);
 double tau_from_cfl(const double& sigma, const double& h, const std::vector<std::vector<double>>& states, const int& num_space_steps, const double& gam_hcr);
 
 std::vector<double> HLL_flux(const std::vector<double>& U_L, const std::vector<double>& U_R, const double &gam_hcr);
@@ -24,6 +27,11 @@ std::vector<double> HLL_flux(const std::vector<double>& U_L, const std::vector<d
 std::vector<double> HLLC_flux(const std::vector<double>& U_L, const std::vector<double>& U_R, const double &gam_hcr);
 
 std::vector<double> HLLD_flux(const std::vector<double>& U_L, const std::vector<double>& U_R, const double &gam_hcr);
+
+// Corrected Miyoshi--Kusano HLLD flux.  The caller supplies the same
+// CT-owned edge-normal B component in U_L[5] and U_R[5].
+std::vector<double> HLLD_flux_corrected(std::vector<double> U_L, std::vector<double> U_R,
+                                        const double &gam_hcr, std::size_t* fallbackCounter = nullptr);
 
 bool HLLScheme(const MHDProblem1D &problem, const std::string &filename ="HLLScheme");
 

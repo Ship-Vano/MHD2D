@@ -5,6 +5,47 @@
 
 #include "NetGeometry.h"
 
+namespace {
+
+// The edge pool chooses its node order from the cyclic order of neighbour 1.
+// A text mesh with clockwise cells therefore used to change the sign convention
+// of CT even though winding is not a physical input degree of freedom.  Make
+// every planar input cell counter-clockwise before any edge/ghost topology is
+// derived from it.
+void canonicalizePlanarElementWinding(std::vector<Element>& elements,
+                                      const NodePool& nodePool) {
+    for (Element& element : elements) {
+        if (element.dim < 3 ||
+            element.nodeIndexes.size() != static_cast<std::size_t>(element.dim)) {
+            throw std::runtime_error("Text mesh contains an invalid planar element");
+        }
+
+        double twiceSignedArea = 0.0;
+        for (int nodeOffset = 0; nodeOffset < element.dim; ++nodeOffset) {
+            const int firstIndex = element.nodeIndexes[nodeOffset];
+            const int secondIndex = element.nodeIndexes[(nodeOffset + 1) % element.dim];
+            if (firstIndex < 0 || secondIndex < 0 ||
+                firstIndex >= nodePool.nodeCount || secondIndex >= nodePool.nodeCount) {
+                throw std::runtime_error("Text mesh element references an invalid node");
+            }
+            const Vec3& first = nodePool.nodes[firstIndex].pos;
+            const Vec3& second = nodePool.nodes[secondIndex].pos;
+            twiceSignedArea += first.x * second.y - second.x * first.y;
+        }
+
+        if (!std::isfinite(twiceSignedArea) || twiceSignedArea == 0.0) {
+            throw std::runtime_error("Text mesh contains a degenerate planar element");
+        }
+        if (twiceSignedArea < 0.0) {
+            // Retain the first vertex so that the element id and its first
+            // vertex remain stable while reversing the cyclic orientation.
+            std::reverse(element.nodeIndexes.begin() + 1, element.nodeIndexes.end());
+        }
+    }
+}
+
+}  // namespace
+
 template <typename T> int sgn(T val) {
     return (T(0) < val) - (val < T(0));
 }
@@ -544,6 +585,7 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
 
         std::cout << "Creating node and element pools..." << std::endl;
         np = NodePool(nodes.size(), nodes);
+        canonicalizePlanarElementWinding(elements, np);
         ep = ElementPool(elements[0].dim, elements.size(), elements); // предполагаем, что вс элементы имеют одинаковую размерность
 
         // вычисляем площади и центры для элементов
@@ -610,7 +652,7 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
                 maxX = node.pos.x;
             }
             else if(node.pos.x < minX){
-                maxX = node.pos.x;
+                minX = node.pos.x;
             }
             if(node.pos.y > maxY){
                 maxY = node.pos.y;
@@ -810,6 +852,8 @@ World::World(const std::string &fileName, const bool isRenderedBin) : np(), ep()
 
                         // neighbour service connection
                         ns.boundaryToGhostElements[elem.ind] = ghostEl.ind;
+                        ns.boundaryEdgeToGhostElement[edge.ind] = ghostEl.ind;
+                        ns.ghostElementToBoundaryEdge[ghostEl.ind] = edge.ind;
 
                         // Update indices
                         ghostNodes.push_back(reflNode);

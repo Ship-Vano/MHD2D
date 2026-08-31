@@ -4,6 +4,10 @@
 
 #include "MHDSolver2D.h"
 
+#include <iomanip>
+#include <limits>
+#include <sstream>
+
 double gas_energy(const double& gam_hcr, const double& gas_p, const double& rho, const double& u, const double& v, const double& w){
     return gas_p / (gam_hcr - 1.0) + rho * (u * u + v * v + w * w) / 2.0;
 }
@@ -160,6 +164,107 @@ double MHDSolver2D::tau_from_cfl2D(const double& sigma, const double& min_h, std
     return std::min(optimal_tau, 1e-3);
 }
 
+double MHDSolver2D::stableTimeStepUnstructured(const std::vector<std::vector<double>>& states,
+                                                const std::vector<double>& faceNormalB,
+                                                const double& gam_hcr) {
+    const EdgePool edgePool = geometryWorld.getEdgePool();
+    const ElementPool elementPool = geometryWorld.getElementPool();
+    const NeighbourService neighbours = geometryWorld.getNeighbourService();
+    const int physicalElementCount = elementPool.elCount - geometryWorld.ghostElemCount;
+    const int physicalEdgeCount = edgePool.edgeCount - geometryWorld.ghostElemCount * 2;
+    if (static_cast<int>(states.size()) != physicalElementCount ||
+        static_cast<int>(faceNormalB.size()) < physicalEdgeCount) {
+        throw std::runtime_error("Unstructured CFL input does not match the physical legacy mesh");
+    }
+    const auto periodic_partner_edge = [&](const int boundaryEdge) {
+        const auto top = neighbours.boundaryEdgeTopToBottom.find(boundaryEdge);
+        if (top != neighbours.boundaryEdgeTopToBottom.end()) return top->second;
+        for (const auto& [first, second] : neighbours.boundaryEdgeTopToBottom) {
+            if (second == boundaryEdge) return first;
+        }
+        const auto left = neighbours.boundaryEdgeLeftToRight.find(boundaryEdge);
+        if (left != neighbours.boundaryEdgeLeftToRight.end()) return left->second;
+        for (const auto& [first, second] : neighbours.boundaryEdgeLeftToRight) {
+            if (second == boundaryEdge) return first;
+        }
+        return -1;
+    };
+    const auto face_state = [&](const std::vector<double>& state, const Edge& edge) {
+        if (state.size() != 8 || !(state[0] > 0.0)) {
+            throw std::runtime_error("Unstructured CFL received a nonpositive density");
+        }
+        for (const double value : state) {
+            if (!std::isfinite(value)) throw std::runtime_error("Unstructured CFL received a non-finite state");
+        }
+        std::vector<double> stateCopy(state);
+        std::vector<double> normal = rotateStateFromAxisToNormal(stateCopy, edge.normalVector);
+        const double gasPressure = pressure(normal, gam_hcr);
+        if (!(gasPressure > 0.0) || !std::isfinite(gasPressure)) {
+            throw std::runtime_error("Unstructured CFL received a nonpositive pressure");
+        }
+        const double oldBn = normal[5];
+        normal[5] = faceNormalB.at(edge.ind);
+        normal[4] += 0.5 * (normal[5] * normal[5] - oldBn * oldBn);
+        return normal;
+    };
+    const auto fast_speed = [&](const std::vector<double>& normal) {
+        const double rho = normal[0];
+        const double p = pressure(normal, gam_hcr);
+        const double b2 = normal[5] * normal[5] + normal[6] * normal[6] + normal[7] * normal[7];
+        const double a2 = gam_hcr * p / rho;
+        const double ca2 = b2 / rho;
+        const double cn2 = normal[5] * normal[5] / rho;
+        const double sum = a2 + ca2;
+        const double discriminant = std::max(0.0, sum * sum - 4.0 * a2 * cn2);
+        const double result = std::sqrt(0.5 * (sum + std::sqrt(discriminant)));
+        if (!std::isfinite(result)) throw std::runtime_error("Unstructured CFL produced a non-finite fast speed");
+        return result;
+    };
+
+    std::vector<double> edgeSignal(physicalEdgeCount, 0.0);
+    for (int edgeIndex = 0; edgeIndex < physicalEdgeCount; ++edgeIndex) {
+        const Edge& edge = edgePool.edges[edgeIndex];
+        const std::vector<double> left = face_state(states.at(edge.neighbourInd1), edge);
+        std::vector<double> right;
+        if (edge.neighbourInd2 >= 0) {
+            right = face_state(states.at(edge.neighbourInd2), edge);
+        } else if (periodicBoundaries) {
+            const int partner = periodic_partner_edge(edge.ind);
+            if (partner < 0) throw std::runtime_error("Periodic edge has no CFL partner");
+            right = face_state(states.at(edgePool.edges[partner].neighbourInd1), edge);
+        } else {
+            right = left;
+        }
+        const double cmax = std::max(fast_speed(left), fast_speed(right));
+        const double sl = std::min(left[1] / left[0], right[1] / right[0]) - cmax;
+        const double sr = std::max(left[1] / left[0], right[1] / right[0]) + cmax;
+        edgeSignal[edgeIndex] = std::max({0.0, -sl, sr});
+    }
+    double stableDt = std::numeric_limits<double>::infinity();
+    for (int elementIndex = 0; elementIndex < physicalElementCount; ++elementIndex) {
+        const Element& element = elementPool.elements[elementIndex];
+        if (!(element.area > 0.0) || !std::isfinite(element.area)) {
+            throw std::runtime_error("Unstructured CFL encountered a degenerate element");
+        }
+        double spectralPerimeter = 0.0;
+        for (const int edgeIndex : element.edgeIndexes) {
+            if (edgeIndex < 0 || edgeIndex >= physicalEdgeCount) {
+                throw std::runtime_error("Physical element references a nonphysical CFL edge");
+            }
+            spectralPerimeter += edgePool.edges[edgeIndex].length * edgeSignal[edgeIndex];
+        }
+        if (!(spectralPerimeter > 0.0) || !std::isfinite(spectralPerimeter)) {
+            throw std::runtime_error("Unstructured CFL encountered a nonpositive spectral perimeter");
+        }
+        stableDt = std::min(stableDt, element.area / spectralPerimeter);
+    }
+    const double result = cflNum * stableDt;
+    if (!(result > 0.0) || !std::isfinite(result)) {
+        throw std::runtime_error("Unstructured CFL timestep is not positive and finite");
+    }
+    return result;
+}
+
 // задание начальных условий
 void MHDSolver2D::setInitElemUs() {
 
@@ -172,7 +277,9 @@ void MHDSolver2D::setInitElemUs() {
 
     // Brio-Wu problem
     if(task_type == 1) {
-        cflNum = 0.9;
+        // The historical source hard-coded 0.9 here although the documented
+        // Brio--Wu case uses 0.1.  The corrected profile makes CFL explicit.
+        cflNum = configuredCfl > 0.0 ? configuredCfl : 0.1;
         freeFLowBoundaries = true;
         periodicBoundaries = false;
         std::cout << "SOLVING TASKTYPE 1 (BRIO-WU TEST)" << std::endl;
@@ -208,18 +315,23 @@ void MHDSolver2D::setInitElemUs() {
         initBns.resize(edgp.edgeCount, 0.0);
         initGhostBNs.resize(geometryWorld.ghostElemCount*2, 0.0);
         initEdgeUs.resize(edgp.edgeCount, std::vector<double>(8, 0.0));
+        // Store the edge integral Bn*|e| through a continuous vector
+        // potential, rather than midpoint sampling on oblique triangles.
+        const auto az_at = [](const Node& node) {
+            const double g = node.pos.x < 0.5 ? node.pos.x : 1.0 - node.pos.x;
+            return 0.75 * node.pos.y - g;
+        };
         for (int i = 0; i < edgp.edgeCount; ++i) {
             Edge edge = edgp.edges[i];
             Vec2 midP = edge.midPoint;
             int edgeInd = edge.ind;
-            Vec2 normal = edge.normalVector;
             std::vector<double> state;
             if (midP.x < 0.5) {
                 state = state_from_primitive_vars(BrioWu_L1);
             } else {
                 state = state_from_primitive_vars(BrioWu_R1);
             }
-            double Bn = state[5] * normal.x + state[6] * normal.y;
+            const double Bn = (az_at(np.nodes[edge.nodeInd2]) - az_at(np.nodes[edge.nodeInd1])) / edge.length;
             initBns[edgeInd] = Bn;
             if(i < innerEdgeCount) {
                 initBns[edgeInd] = Bn;
@@ -610,8 +722,9 @@ void MHDSolver2D::setInitElemUs() {
         double rho = 1.0;
         double p = 1.0;
         gam_hcr = 5.0/3.0;
-        finalTime = 2.0;
-        cflNum = 0.1;
+        // finalTime comes from the case manifest: historical scaled and
+        // Athena-compatible variants are distinct test cards.
+        cflNum = configuredCfl > 0.0 ? configuredCfl : 0.1;
         periodicBoundaries = true;
         freeFLowBoundaries = false;
         freeFLowBoundaries2 = false;
@@ -620,8 +733,8 @@ void MHDSolver2D::setInitElemUs() {
         initBns.resize(edgp.edgeCount, 0.0);
         initGhostElemUs.resize(geometryWorld.ghostElemCount, std::vector<double>(8, 0.0));
         initGhostBNs.resize(geometryWorld.ghostElemCount*2, 0.0);
-        double R0 = 0.3;  // Радиус петли
-        double A = 1.0e-3;   // Амплитуда
+        double R0 = fieldLoopRadius;
+        double A = fieldLoopAmplitude;
         double xc = 0.0, yc = 0.0;  // Центр петли
         std::vector<double> AzField(np.nodeCount, 0.0);
         for (auto& node : np.nodes) {
@@ -637,7 +750,7 @@ void MHDSolver2D::setInitElemUs() {
             Node& node2 = np.nodes[edge.nodeInd2];
             double Az1 = AzField[node1.ind];
             double Az2 = AzField[node2.ind];
-            double Bn = (Az2-Az1)/edge.length;
+            const double Bn = edgeCtOrientation(edge, np) * (Az2 - Az1) / edge.length;
             initBns[edge.ind] = Bn;
             if(i < innerEdgeCount) {
                 initBns[edge.ind] = Bn;
@@ -647,59 +760,16 @@ void MHDSolver2D::setInitElemUs() {
             }
         }
         for (int i = 0; i < innerElemCount; ++i) {
-            Element elem = ep.elements[i];
-            Vec2 centroid = elem.centroid2D;
-            double x = centroid.x;
-            double y = centroid.y;
-            double u = 2.0;//std::sin(std::numbers::pi_v<double>/3.0);
-            double v = 1.0;//std::cos(std::numbers::pi_v<double>/3.0);
-            double w = 0.0;
-            double Bz = 0.0;
-            double Bx = 0.0;
-            double By = 0.0;
-            double temp_sum_Bx = 0.0;
-            double temp_sum_By = 0.0;
-            for (const auto &edgeInd: elem.edgeIndexes) {
-                Edge edge = edgp.edges[edgeInd];
-                if (edge.neighbourInd1 == elem.ind) {
-                    // у первого соседа в эдже заданы ноды в порядке положительного обхода и нормаль тоже
-                    const auto nodeInElemInd = std::find(elem.nodeIndexes.begin(), elem.nodeIndexes.end(),
-                                                         edge.nodeInd1);
-                    int node_before_ind =
-                            nodeInElemInd == elem.nodeIndexes.begin() ? elem.nodeIndexes[elem.dim - 1] : *(
-                                    nodeInElemInd - 1);
-                    //std::cout << "edge of nodes = {"<< edge.nodeInd1 << " , " << edge.nodeInd2 << " } current ind = " << edge.nodeInd1 <<" Elem's node indexes: " << elem.nodeIndexes[0] << " "<< elem.nodeIndexes[1] << " "<< elem.nodeIndexes[2] << ", node_beforeInd = " << node_before_ind << std::endl;
-                    //std::cin.get();
-                    Node node_before = np.getNode(node_before_ind);
-                    if(edgeInd < innerEdgeCount) {
-                        Bx += initBns[edgeInd] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
-                        By += initBns[edgeInd] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
-                    }
-                    else{
-                        continue;
-                        Bx += initGhostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
-                        By += initGhostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
-                    }
-                } else if(edge.neighbourInd2 != -1){
-                    // а вот для второго нужно умножать на -1 и в обратном порядке
-                    const auto nodeInElemInd = std::find(elem.nodeIndexes.begin(), elem.nodeIndexes.end(),
-                                                         edge.nodeInd2);
-                    int node_before_ind =
-                            nodeInElemInd == elem.nodeIndexes.begin() ? elem.nodeIndexes[elem.dim - 1] : *(
-                                    nodeInElemInd - 1);
-                    Node node_before = np.getNode(node_before_ind);
-                    if(edgeInd < innerEdgeCount) {
-                        Bx -= initBns[edgeInd] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
-                        By -= initBns[edgeInd] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
-                    }
-                    else{
-                        continue;
-                        Bx -= initGhostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
-                        By -= initGhostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
-                    }
-                }
-            }
-            initElemUs[elem.ind] = state_from_primitive_vars2D(rho, u, v, w, p, Bx, By, Bz, gam_hcr);
+            const Element& elem = ep.elements[i];
+            // The cell state must be the RT0 projection of exactly the same
+            // face-normal field that CT evolves.  Reconstructing from a
+            // different midpoint sample creates an artificial first-step
+            // inconsistency on irregular triangles.
+            const Vec2 magneticField = reconstructCellMagneticFieldRT0(
+                elem, np, edgp, initBns, innerEdgeCount);
+            initElemUs[elem.ind] = state_from_primitive_vars2D(
+                rho, fieldLoopU, fieldLoopV, 0.0, p,
+                magneticField.x, magneticField.y, 0.0, gam_hcr);
         }
         NeighbourService ns = geometryWorld.getNeighbourService();
         for(const auto& [boundary, ghost]: ns.boundaryToGhostElements){
@@ -708,59 +778,85 @@ void MHDSolver2D::setInitElemUs() {
         }
     }
     else if(task_type == 8){
-        std::cout << "SOLVING TASKTYPE 8: The Circular Polarized Alfven Wave Test " << std::endl;
-        double rho = 1.0;
-        double p = 0.1;
-        gam_hcr = 5.0/3.0;
-        finalTime = 1.0;
-        cflNum = 0.1;
-        double alpha = std::numbers::pi_v<double>/6.0; //The wave propagates along the diagonal of the grid, at an angle θ = tan-1(0.5) ≈ 26.6 degrees with respect to the x-axis
+        // This is the 30-degree Toth geometry, not Athena's 26.565-degree
+        // variant.  Its domain must contain an integer number of wavelengths.
+        std::cout << "SOLVING TASKTYPE 8: The Circular Polarized Alfven Wave Test" << std::endl;
+        const double rho = 1.0;
+        const double p = 0.1;
+        const double alpha = std::numbers::pi_v<double> / 6.0;
+        gam_hcr = 5.0 / 3.0;
+        // finalTime is a case-manifest property; the canonical Toth return
+        // test supplies 1.0 explicitly.
+        cflNum = configuredCfl > 0.0 ? configuredCfl : 0.1;
         periodicBoundaries = true;
         initElemUs.resize(innerElemCount, std::vector<double>(8, 0.0));
         initEdgeUs.resize(edgp.edgeCount, std::vector<double>(8, 0.0));
         initBns.resize(edgp.edgeCount, 0.0);
         initGhostElemUs.resize(geometryWorld.ghostElemCount, std::vector<double>(8, 0.0));
+        initGhostBNs.resize(geometryWorld.ghostElemCount * 2, 0.0);
+
+        const auto wrap_periodic = [](const double coordinate, const double lo, const double hi) {
+            const double length = hi - lo;
+            double wrapped = std::fmod(coordinate - lo, length);
+            if (wrapped < 0.0) wrapped += length;
+            return lo + wrapped;
+        };
+        const auto state_at = [&](const double x, const double y) {
+            const double xpar = x * std::cos(alpha) + y * std::sin(alpha);
+            const double vperp = 0.1 * std::sin(2.0 * std::numbers::pi_v<double> * xpar);
+            return state_from_primitive_vars2D(rho,
+                -vperp * std::sin(alpha), vperp * std::cos(alpha),
+                0.1 * std::cos(2.0 * std::numbers::pi_v<double> * xpar), p,
+                std::cos(alpha) - vperp * std::sin(alpha),
+                std::sin(alpha) + vperp * std::cos(alpha),
+                0.1 * std::cos(2.0 * std::numbers::pi_v<double> * xpar), gam_hcr);
+        };
+        // B = curl(Az ez); storing endpoint differences of Az makes the
+        // edge-normal field discretely divergence-free from the first step.
+        const auto az_at = [&](const Node& node) {
+            const double xpar = node.pos.x * std::cos(alpha) + node.pos.y * std::sin(alpha);
+            return std::cos(alpha) * node.pos.y - std::sin(alpha) * node.pos.x
+                + 0.1 / (2.0 * std::numbers::pi_v<double>) *
+                    std::cos(2.0 * std::numbers::pi_v<double> * xpar);
+        };
         for (int i = 0; i < innerElemCount; ++i) {
-            Element elem = ep.elements[i];
-            Vec2 centroid = elem.centroid2D;
-            double x = centroid.x;
-            double y = centroid.y;
-            double x_par = x * std::cos(alpha) + y * std::sin(alpha);
-            double v_perp = 0.1 * std::sin(2.0 * std::numbers::pi_v<double> * x_par);
-            double v_par = 0.0;
-            double B_perp = 0.1 * std::sin(2.0 * std::numbers::pi_v<double> * x_par);
-            double B_par = 1.0;
-            double u = v_par * std::cos(alpha) - v_perp * std::sin(alpha);
-            double v = v_perp * std::cos(alpha) + v_par * std::sin(alpha);
-            double w = 0.1 * std::cos(2.0 * std::numbers::pi_v<double> * x_par);
-            double Bz = 0.1 * std::cos(2.0 * std::numbers::pi_v<double> * x_par);
-            double Bx = B_par * std::cos(alpha) - B_perp * std::sin(alpha);
-            double By = B_perp * std::cos(alpha) + B_par * std::sin(alpha);
-            initElemUs[elem.ind] = state_from_primitive_vars2D(rho, u, v, w, p, Bx, By, Bz, gam_hcr);
+            const Element& elem = ep.elements[i];
+            initElemUs[elem.ind] = state_at(elem.centroid2D.x, elem.centroid2D.y);
         }
-        NeighbourService ns = geometryWorld.getNeighbourService();
-        for(const auto& [boundary, ghost]: ns.boundaryToGhostElements){
-            int ghostInd = ghost - innerElemCount;
-            initGhostElemUs[ghostInd] =  initElemUs[boundary];
+        for (int i = innerElemCount; i < ep.elCount; ++i) {
+            const Element& ghost = ep.elements[i];
+            initGhostElemUs[ghost.ind - innerElemCount] = state_at(
+                wrap_periodic(ghost.centroid2D.x, geometryWorld.minX, geometryWorld.maxX),
+                wrap_periodic(ghost.centroid2D.y, geometryWorld.minY, geometryWorld.maxY));
         }
-        initGhostBNs.resize(geometryWorld.ghostElemCount*2, 0.0);
-        for(int i = 0; i < edgp.edgeCount; ++i){
-            Edge edge = edgp.edges[i];
-            double x = edge.midPoint.x;
-            double y = edge.midPoint.y;
-            double x_par = x * std::cos(alpha) + y * std::sin(alpha);
-            double B_perp = 0.1 * std::sin(2.0 * std::numbers::pi_v<double> * x_par);
-            double B_par = 1.0;
-            double Bx = B_par * std::cos(alpha) - B_perp * std::sin(alpha);
-            double By = B_perp * std::cos(alpha) + B_par * std::sin(alpha);
-            double Bn = Bx * edge.normalVector.x +  By * edge.normalVector.y;
-            initBns[edge.ind] = Bn;
-            if(i < innerEdgeCount) {
-                initBns[edge.ind] = Bn;
+        for (int i = 0; i < edgp.edgeCount; ++i) {
+            const Edge& edge = edgp.edges[i];
+            const double bn = edgeCtOrientation(edge, np) *
+                              (az_at(np.nodes[edge.nodeInd2]) - az_at(np.nodes[edge.nodeInd1])) /
+                              edge.length;
+            initBns[edge.ind] = bn;
+            if (i < innerEdgeCount) {
+                initBns[edge.ind] = bn;
+            } else {
+                initGhostBNs[edge.ind - innerEdgeCount] = bn;
             }
-            else{
-                initGhostBNs[edge.ind - innerEdgeCount] = Bn;
-            }
+            initEdgeUs[edge.ind] = state_at(
+                wrap_periodic(edge.midPoint.x, geometryWorld.minX, geometryWorld.maxX),
+                wrap_periodic(edge.midPoint.y, geometryWorld.minY, geometryWorld.maxY));
+        }
+        // Project the face-normal discrete curl back to cell centres before
+        // the first Riemann solve.  This keeps the gas state and CT degrees
+        // of freedom mutually consistent on a genuinely irregular mesh.
+        for (int i = 0; i < innerElemCount; ++i) {
+            const Element& elem = ep.elements[i];
+            const Vec2 magneticField = reconstructCellMagneticFieldRT0(
+                elem, np, edgp, initBns, innerEdgeCount);
+            const std::vector<double>& previous = initElemUs[elem.ind];
+            const double cellRho = previous[0];
+            initElemUs[elem.ind] = state_from_primitive_vars2D(
+                cellRho, previous[1] / cellRho, previous[2] / cellRho,
+                previous[3] / cellRho, p, magneticField.x, magneticField.y,
+                previous[7], gam_hcr);
         }
     }
 }
@@ -780,6 +876,97 @@ void MHDSolver2D::runSolver() {
     bNs = initBns;
     ghostElemUs = initGhostElemUs;
     ghostBNs = initGhostBNs;
+    if (static_cast<int>(ns.ghostElementToBoundaryEdge.size()) != geometryWorld.ghostElemCount) {
+        throw std::runtime_error(
+            "legacy_corrected requires a text mesh: the historical binary World format "
+            "does not serialize one-to-one boundary-edge/ghost mappings");
+    }
+
+    // A corner triangle has two reflected ghosts.  boundaryToGhostElements
+    // is intentionally lossy for legacy compatibility, so corrected boundary
+    // fluxes refresh each ghost from its own boundary edge.
+    const auto periodic_partner_edge = [&](const int boundaryEdge) {
+        const auto top = ns.boundaryEdgeTopToBottom.find(boundaryEdge);
+        if (top != ns.boundaryEdgeTopToBottom.end()) return top->second;
+        for (const auto& [first, second] : ns.boundaryEdgeTopToBottom) {
+            if (second == boundaryEdge) return first;
+        }
+        const auto left = ns.boundaryEdgeLeftToRight.find(boundaryEdge);
+        if (left != ns.boundaryEdgeLeftToRight.end()) return left->second;
+        for (const auto& [first, second] : ns.boundaryEdgeLeftToRight) {
+            if (second == boundaryEdge) return first;
+        }
+        return -1;
+    };
+    const auto refresh_ghost_states = [&]() {
+        for (const auto& [ghostElement, boundaryEdge] : ns.ghostElementToBoundaryEdge) {
+            int sourceEdge = boundaryEdge;
+            if (periodicBoundaries) {
+                sourceEdge = periodic_partner_edge(boundaryEdge);
+                if (sourceEdge < 0) throw std::runtime_error("Periodic boundary edge has no paired edge");
+            }
+            const int sourceElement = edgePool.edges[sourceEdge].neighbourInd1;
+            ghostElemUs.at(ghostElement - innerElemCount) = elemUs.at(sourceElement);
+        }
+    };
+    refresh_ghost_states();
+
+    const auto fail_physical_state = [&](const char* stage, const int iteration, const double time,
+                                         const int element, const double gasPressure,
+                                         const std::vector<double>& state) {
+        std::ofstream dump("OutputData/physical_failure.json");
+        const auto json_number = [&dump](const double value) {
+            if (std::isfinite(value)) dump << value;
+            else dump << "null";
+        };
+        if (dump.is_open()) {
+            dump << std::setprecision(17) << "{\n  \"stage\": \"" << stage << "\",\n"
+                 << "  \"iteration\": " << iteration << ",\n"
+                 << "  \"time\": ";
+            json_number(time);
+            dump << ",\n  \"element\": " << element << ",\n  \"rho\": ";
+            json_number(state.empty() ? std::numeric_limits<double>::quiet_NaN() : state[0]);
+            dump << ",\n  \"pressure\": ";
+            json_number(gasPressure);
+            dump << ",\n  \"state\": [";
+            for (std::size_t component = 0; component < state.size(); ++component) {
+                if (component) dump << ", ";
+                json_number(state[component]);
+            }
+            dump << "]\n}\n";
+        }
+        std::ostringstream message;
+        message << "Nonphysical legacy_corrected state at " << stage << ": iteration=" << iteration
+                << ", time=" << std::setprecision(17) << time << ", element=" << element;
+        throw std::runtime_error(message.str());
+    };
+    const auto ensure_admissible_states = [&](const char* stage, const int iteration, const double time,
+                                               const bool requirePositivePressure) {
+        for (int element = 0; element < innerElemCount; ++element) {
+            const std::vector<double>& state = elemUs[element];
+            bool finite = state.size() == 8;
+            for (const double value : state) finite = finite && std::isfinite(value);
+            if (!finite || !(state[0] > 0.0)) {
+                fail_physical_state(stage, iteration, time, element,
+                                    std::numeric_limits<double>::quiet_NaN(), state);
+            }
+            const double gasPressure = pressure(state, gam_hcr);
+            if (requirePositivePressure && (!std::isfinite(gasPressure) || !(gasPressure > 0.0))) {
+                fail_physical_state(stage, iteration, time, element, gasPressure, state);
+            }
+        }
+    };
+    ensure_admissible_states("initial", 0, startTime, true);
+    const auto integrated_conserved = [&]() {
+        std::vector<double> integral(5, 0.0);
+        for (int element = 0; element < innerElemCount; ++element) {
+            for (int component = 0; component < 5; ++component) {
+                integral[component] += elPool.elements[element].area * elemUs[element][component];
+            }
+        }
+        return integral;
+    };
+    const std::vector<double> initialConserved = integrated_conserved();
 
     // сделать старые дубликаты состояний (предыдущие состояния) чтобы в новые записывать расчёты
     std::vector<std::vector<double>> elemUs_prev(initElemUs.size(), std::vector<double>(8, 0.0));
@@ -798,29 +985,46 @@ void MHDSolver2D::runSolver() {
         }
     }
 
-    // дивергенция магнитного поля
-    double divergence = computeDivergence();
-    std::cout << "Init divergence = " << divergence << std::endl;
+    double divergenceReferenceField = 0.0;
+    for (int edgeIndex = 0; edgeIndex < innerEdgeCount; ++edgeIndex) {
+        divergenceReferenceField = std::max(divergenceReferenceField, std::abs(bNs[edgeIndex]));
+    }
+    if (!(divergenceReferenceField > 0.0)) divergenceReferenceField = 1.0;
+    const DivergenceMetrics initialDivergence = computeDivergenceMetrics(divergenceReferenceField);
+    double divergence = initialDivergence.maxAbs;
+    std::cout << "Init max|magnetic flux residual| = " << initialDivergence.maxFlux
+              << "; max|div B| = " << initialDivergence.maxAbs
+              << "; global scaled magnetic-flux imbalance (B_ref = "
+              << initialDivergence.referenceField << ") = " << initialDivergence.maxScaled << std::endl;
 
-    double h = edgePool.minEdgeLen;
-    std::cout << "Min h = " << h << std::endl;
+    std::cout << "Min edge length (diagnostic only) = " << edgePool.minEdgeLen << std::endl;
 
     double currentTime = startTime;
-    bool foundNan = false; // флаг для поиска NaN-значений
     int iterations = 0; // число текущих итераций
+    double ctMagneticEnergyChangeSigned = 0.0;
+    double ctMagneticEnergyChangeL1 = 0.0;
+    std::size_t hlldFallbacks = 0;
+    double minCflCandidate = std::numeric_limits<double>::infinity();
+    double maxCflCandidate = 0.0;
+    std::vector<double> integratedBoundaryFlux(5, 0.0);
 
     // соновной цикл по времени
     while(currentTime < finalTime) {
         if(iterations >= MAX_ITERATIONS){
-            std::cout << "iterations limit!" << std::endl;
-            break;
+            throw std::runtime_error("legacy_corrected reached MAX_ITERATIONS before final time");
         }
 
+        ensure_admissible_states("pre-flux", iterations, currentTime, true);
         elemUs_prev = elemUs; //TODO: implement swap and test it
+        refresh_ghost_states();
 
         //ghostElemUs_prev.swap(ghostElemUs);
 
-        tau = std::max(min_tau, tau_from_cfl2D(cflNum, h,  elemUs, gam_hcr));
+        // No lower timestep floor: it would violate the unstructured CFL
+        // condition on sliver triangles.
+        tau = stableTimeStepUnstructured(elemUs, bNs, gam_hcr);
+        minCflCandidate = std::min(minCflCandidate, tau);
+        maxCflCandidate = std::max(maxCflCandidate, tau);
 
         currentTime += tau;
 
@@ -846,54 +1050,33 @@ void MHDSolver2D::runSolver() {
         // инициализируем вектор потоков через рёбра // MHD (HLLD) fluxes (from one element to another "<| -> |>")
         std::vector<std::vector<double>> fluxes(edgePool.edges.size(), std::vector<double>(8, 0.0));
         std::vector<std::vector<double>> unrotated_fluxes(edgePool.edges.size(), std::vector<double>(8, 0.0));
-        #pragma parallel for
-        for (const auto &edge: edgePool.edges) {
-            Element neighbour1 = elPool.elements[edge.neighbourInd1];
-            if(neighbour1.is_boundary && edge.neighbourInd2 == -1){
-                std::vector<double> U1 = rotateStateFromAxisToNormal(elemUs_prev[neighbour1.ind], edge.normalVector);
-                int ghostInd = ns.boundaryToGhostElements[neighbour1.ind] - innerElemCount;
-                std::vector<double> U2 = rotateStateFromAxisToNormal(ghostElemUs[ghostInd], edge.normalVector);
-                fluxes[edge.ind] = HLLD_flux(U1, U2, gam_hcr);
-                unrotated_fluxes[edge.ind] = fluxes[edge.ind];
-                fluxes[edge.ind] = rotateStateFromNormalToAxisX(fluxes[edge.ind], edge.normalVector);
+        // Reflected auxiliary edges supply boundary data only.  They are not
+        // faces of a physical control volume and must never enter the flux or
+        // CT updates.
+        for (int edgeIndex = 0; edgeIndex < innerEdgeCount; ++edgeIndex) {
+            const Edge& edge = edgePool.edges[edgeIndex];
+            const Element& neighbour1 = elPool.elements[edge.neighbourInd1];
+            std::vector<double> U1 = rotateStateFromAxisToNormal(elemUs_prev[neighbour1.ind], edge.normalVector);
+            std::vector<double> U2;
+            if (edge.neighbourInd2 == -1) {
+                const int ghostInd = ns.boundaryEdgeToGhostElement.at(edge.ind) - innerElemCount;
+                U2 = rotateStateFromAxisToNormal(ghostElemUs.at(ghostInd), edge.normalVector);
+            } else {
+                U2 = rotateStateFromAxisToNormal(elemUs_prev[edge.neighbourInd2], edge.normalVector);
             }
-            else if(neighbour1.is_ghost && edge.neighbourInd2 == -1){
-                //continue; //TODO
-                std::vector<double> U1 = rotateStateFromAxisToNormal(ghostElemUs[neighbour1.ind - innerElemCount], edge.normalVector);
-                fluxes[edge.ind] = HLLD_flux(U1, U1, gam_hcr);
-                unrotated_fluxes[edge.ind] = HLLD_flux(U1, U1, gam_hcr);
-                fluxes[edge.ind] = rotateStateFromNormalToAxisX(fluxes[edge.ind], edge.normalVector);
-            }
-            else{
-                std::vector<double> U1 = rotateStateFromAxisToNormal(elemUs_prev[neighbour1.ind], edge.normalVector);
-                Element neighbour2 = elPool.elements[edge.neighbourInd2];
-                std::vector<double> U2 = rotateStateFromAxisToNormal(elemUs_prev[neighbour2.ind], edge.normalVector);
-                fluxes[edge.ind] = HLLD_flux(U1, U2, gam_hcr);
-                unrotated_fluxes[edge.ind] = fluxes[edge.ind];
-                fluxes[edge.ind] = rotateStateFromNormalToAxisX(fluxes[edge.ind], edge.normalVector);
-            }
+            // A Riemann interface has one Bn: CT owns it on the edge.
+            U1[4] += 0.5 * (bNs[edge.ind] * bNs[edge.ind] - U1[5] * U1[5]);
+            U2[4] += 0.5 * (bNs[edge.ind] * bNs[edge.ind] - U2[5] * U2[5]);
+            U1[5] = bNs[edge.ind];
+            U2[5] = bNs[edge.ind];
+            unrotated_fluxes[edge.ind] = HLLD_flux_corrected(U1, U2, gam_hcr, &hlldFallbacks);
+            fluxes[edge.ind] = rotateStateFromNormalToAxisX(unrotated_fluxes[edge.ind], edge.normalVector);
         }
-
-        if(freeFLowBoundaries) {
-            for (const auto &[top, bot]: ns.boundaryElemTopToBottom) {
-                Element elGhostTop = elPool.elements[ns.boundaryToGhostElements[top]];
-                for (const auto &edgeInd: elGhostTop.edgeIndexes) {
-                    Edge edge = edgePool.edges[edgeInd];
-                    if (edge.is_ghost) {
-                        int corspEdge = ns.edgeToGhostEdges[edge.ind];
-                        unrotated_fluxes[edge.ind] = (-1.0) * unrotated_fluxes[corspEdge];
-                        fluxes[edge.ind] = rotateStateFromAxisToNormal(unrotated_fluxes[edge.ind], edge.normalVector);
-                    }
-                }
-                Element elGhostBot = elPool.elements[ns.boundaryToGhostElements[bot]];
-                for (const auto &edgeInd: elGhostBot.edgeIndexes) {
-                    Edge edge = edgePool.edges[edgeInd];
-                    if (edge.is_ghost) {
-                        int corspEdge = ns.edgeToGhostEdges[edge.ind];
-                        unrotated_fluxes[edge.ind] = (-1.0) * unrotated_fluxes[corspEdge];
-                        fluxes[edge.ind] = rotateStateFromAxisToNormal(unrotated_fluxes[edge.ind], edge.normalVector);
-                    }
-                }
+        for (int edgeIndex = 0; edgeIndex < innerEdgeCount; ++edgeIndex) {
+            const Edge& edge = edgePool.edges[edgeIndex];
+            if (edge.neighbourInd2 != -1) continue;
+            for (int component = 0; component < 5; ++component) {
+                integratedBoundaryFlux[component] += tau * edge.length * fluxes[edgeIndex][component];
             }
         }
         // по явной схеме обновляем газовые величины
@@ -904,295 +1087,146 @@ void MHDSolver2D::runSolver() {
             if(elem.edgeIndexes.size() != 3){
                 std::cout << "Bad edge vector size != 3" << std::endl;
             }
-            if(!elem.is_boundary || freeFLowBoundaries == false) {
-                for (int edgeIndex: elem.edgeIndexes) {
-                    Edge edge_j = edgePool.edges[edgeIndex];
-                    if (std::abs(edge_j.length) < 1e-16) {
-                        std::cout << "BAD EDGE LENGTH = 0!! " << edge_j.length << std::endl;
-                        Node node1 = nodePool.getNode(edge_j.nodeInd1);
-                        Node node2 = nodePool.getNode(edge_j.nodeInd2);
-                        std::cout << "edge: " << edge_j.ind << std::endl;
-                        std::cout << "node1 # " << edge_j.nodeInd1 << " { " << node1.pos.x << ", " << node1.pos.y << " } \n";
-                        std::cout << "node2 # " << edge_j.nodeInd2 << " { " << node2.pos.x << ", " << node2.pos.y << " } \n";
-                        Element elem1 = elPool.elements[edge_j.neighbourInd1];
-                        std::cout << "neigel1 # " << elem1.ind << " isBoundary = " << elem1.is_boundary
-                                  << " , isGhost = " << elem1.is_ghost << std::endl;
-                        std::cout << "neigel2 # " << edge_j.neighbourInd2 << std::endl;
-                        std::cin.get();
-
-                    }
-                    if (edge_j.neighbourInd1 == i) {
-                        fluxSum = fluxSum + edge_j.length * fluxes[edgeIndex];
-                    } else if (edge_j.neighbourInd2 == i) {
-                        fluxSum = fluxSum - edge_j.length * fluxes[edgeIndex];
-                    } else {
-                        //std::cerr << "No matching edge..."  << std::endl;
-                    }
+            // The true boundary Riemann flux is already in fluxes; physical
+            // boundary cells use the same FV update as interior cells.
+            for (const int edgeIndex: elem.edgeIndexes) {
+                if (edgeIndex < 0 || edgeIndex >= innerEdgeCount) {
+                    throw std::runtime_error("Physical element references a ghost edge during FV update");
                 }
-                elemUs[i] = elemUs_prev[i] - tau / elem.area * fluxSum;
+                const Edge& edge = edgePool.edges[edgeIndex];
+                if (edge.neighbourInd1 == i) {
+                    fluxSum = fluxSum + edge.length * fluxes[edgeIndex];
+                } else if (edge.neighbourInd2 == i) {
+                    fluxSum = fluxSum - edge.length * fluxes[edgeIndex];
+                } else {
+                    throw std::runtime_error("Physical element does not own one of its edges");
+                }
             }
-            else{
-                int ghostInd = ns.boundaryToGhostElements[i];
-                int ghostIndForState = ns.boundaryToGhostElements[i] - innerElemCount;
-                Element ghostEl = elPool.elements[ghostInd];
-                std::vector<int> commonEdges = findCommonElements(ghostEl.edgeIndexes, elem.edgeIndexes);
-                if(commonEdges.size() != 1){
-                    std::cout << "NO COMMON EDGES!" << std::endl;
-                    std::cout << elem.edgeIndexes[0] << ",  "<< elem.edgeIndexes[1] << ",  "<< elem.edgeIndexes[2] << "; vs/s ghost: " << ghostEl.edgeIndexes[0] << ",  " << ghostEl.edgeIndexes[1] << ",  " << ghostEl.edgeIndexes[2] << std::endl;
-                }
-                int commonEdgeInd = commonEdges[0];
-                double area = elem.area * 2.0;
-
-                for(const auto& edgeInd: elem.edgeIndexes){
-                    if(edgeInd == commonEdgeInd){
-                        continue;
-                    }
-                    Edge edge_j = edgePool.edges[edgeInd];
-                    if (std::abs(edge_j.length) < 1e-16) {
-                        std::cout << "BAD EDGE LENGTH = 0!! " << edge_j.length << std::endl;
-                        Node node1 = nodePool.getNode(edge_j.nodeInd1);
-                        Node node2 = nodePool.getNode(edge_j.nodeInd2);
-                        std::cout << "edge: " << edge_j.ind << std::endl;
-                        std::cout << "node1 # " << edge_j.nodeInd1 << " { " << node1.pos.x << ", " << node1.pos.y << " } \n";
-                        std::cout << "node2 # " << edge_j.nodeInd2 << " { " << node2.pos.x << ", " << node2.pos.y << " } \n";
-                        Element elem1 = elPool.elements[edge_j.neighbourInd1];
-                        std::cout << "neigel1 # " << elem1.ind << " isBoundary = " << elem1.is_boundary
-                                  << " , isGhost = " << elem1.is_ghost << std::endl;
-                        std::cout << "neigel2 # " << edge_j.neighbourInd2 << std::endl;
-                        std::cin.get();
-                    }
-                    if (edge_j.neighbourInd1 == i) {
-                        fluxSum = fluxSum + edge_j.length * fluxes[edgeInd];
-                    } else if (edge_j.neighbourInd2 == i) {
-                        fluxSum = fluxSum - edge_j.length * fluxes[edgeInd];
-                    } else {
-                        std::cerr << "No matching edge..."  << std::endl;
-                    }
-                }
-                for(const auto& ghostEdgeInd: ghostEl.edgeIndexes){
-                    if(ghostEdgeInd == commonEdgeInd){
-                        continue;
-                    }
-                    Edge edge_j = edgePool.edges[ghostEdgeInd];
-                    if (std::abs(edge_j.length) < 1e-16) {
-                        std::cout << "BAD EDGE LENGTH = 0!! " << edge_j.length << std::endl;
-                        Node node1 = nodePool.getNode(edge_j.nodeInd1);
-                        Node node2 = nodePool.getNode(edge_j.nodeInd2);
-                        std::cout << "edge: " << edge_j.ind << std::endl;
-                        std::cout << "node1 # " << edge_j.nodeInd1 << " { " << node1.pos.x << ", " << node1.pos.y << " } \n";
-                        std::cout << "node2 # " << edge_j.nodeInd2 << " { " << node2.pos.x << ", " << node2.pos.y << " } \n";
-                        Element elem1 = elPool.elements[edge_j.neighbourInd1];
-                        std::cout << "neigel1 # " << elem1.ind << " isBoundary = " << elem1.is_boundary
-                                  << " , isGhost = " << elem1.is_ghost << std::endl;
-                        std::cout << "neigel2 # " << edge_j.neighbourInd2 << std::endl;
-                        std::cin.get();
-                    }
-                    if (edge_j.neighbourInd1 == ghostEl.ind) {
-                        fluxSum = fluxSum + edge_j.length * fluxes[ghostEdgeInd];
-                    } else if (edge_j.neighbourInd2 == ghostEl.ind) {
-                        fluxSum = fluxSum - edge_j.length * fluxes[ghostEdgeInd];
-                    } else {
-                        std::cerr << "No matching edge..."  << std::endl;
-                    }
-                }
-                elemUs[i] = elemUs_prev[i] - tau / area * fluxSum;
-            }
+            elemUs[i] = elemUs_prev[i] - tau / elem.area * fluxSum;
         }
 
 
-        // г.у (фикт ячейки) поставить перед выч-м потоков
-        if(periodicBoundaries){
-            // периодическое г.у.
-            for(const auto& [top, bot]: ns.boundaryElemTopToBottom){
-                int ghostIndTop = ns.boundaryToGhostElements[top] - innerElemCount;
-                int ghostIndBot = ns.boundaryToGhostElements[bot] - innerElemCount;
-                ghostElemUs[ghostIndTop] = elemUs[bot];
-                ghostElemUs[ghostIndBot] = elemUs[top];
-            }
-            for(const auto& [left, right]: ns.boundaryElemLeftToRight){
-                int ghostIndLeft = ns.boundaryToGhostElements[left] - innerElemCount;
-                int ghostIndRight = ns.boundaryToGhostElements[right] - innerElemCount;
-                ghostElemUs[ghostIndLeft] =  elemUs[right];
-                ghostElemUs[ghostIndRight] = elemUs[left];
-            }
+        ensure_admissible_states("post-gas", iterations, currentTime, true);
+        refresh_ghost_states();
+
+        // The CT electromotive force is the tangential magnetic flux from the
+        // same Riemann solve used by the gas update.  Ghost/reflection edges
+        // have no physical flux and are deliberately excluded.
+        std::vector<double> nodeMagDiffs(nodePool.nodeCount, 0.0);
+        std::vector<int> nodeEmfCounts(nodePool.nodeCount, 0);
+        for (int edgeIndex = 0; edgeIndex < innerEdgeCount; ++edgeIndex) {
+            const Edge& edge = edgePool.edges[edgeIndex];
+            const double emfProxy = unrotated_fluxes[edgeIndex][6];
+            nodeMagDiffs[edge.nodeInd1] += emfProxy;
+            nodeMagDiffs[edge.nodeInd2] += emfProxy;
+            ++nodeEmfCounts[edge.nodeInd1];
+            ++nodeEmfCounts[edge.nodeInd2];
         }
-        else{
-            // копируем значения в соответствующие фантомные ячейки (условие free flow)
-            for(const auto& [boundary, ghost] : ns.boundaryToGhostElements){
-                int ghostInd = ghost - innerElemCount;
-                ghostElemUs[ghostInd] = elemUs[boundary];
+        for (int nodeIndex = 0; nodeIndex < nodePool.nodeCount; ++nodeIndex) {
+            if (nodeEmfCounts[nodeIndex] > 0) {
+                nodeMagDiffs[nodeIndex] /= static_cast<double>(nodeEmfCounts[nodeIndex]);
             }
         }
 
-        for(auto& edge: edgePool.edges){
-            Element neighbour1 = elPool.elements[edge.neighbourInd1];
-            if(neighbour1.is_ghost){
-                edgeUs[edge.ind] = ghostElemUs[neighbour1.ind - innerElemCount];
-            }else if(neighbour1.is_boundary){
-                std::vector<double> U1 = elemUs[neighbour1.ind];
-                int ghostInd = ns.boundaryToGhostElements[neighbour1.ind] - innerElemCount;
-                std::vector<double> U2 = ghostElemUs[ghostInd];
-                edgeUs[edge.ind] = (1.0/(std::sqrt(U1[0]) + std::sqrt(U2[0]))) * (std::sqrt(U1[0]) * U1 + std::sqrt(U2[0]) * U2);
-            }else{
-                Element neighbour2 = elPool.elements[edge.neighbourInd2];
-                std::vector<double> U1 = elemUs[neighbour1.ind];
-                std::vector<double> U2 = elemUs[neighbour2.ind];
-                edgeUs[edge.ind] = (1.0/(std::sqrt(U1[0]) + std::sqrt(U2[0]))) * (std::sqrt(U1[0]) * U1 + std::sqrt(U2[0]) * U2);
+        if (periodicBoundaries) {
+            // Boundary nodes represent the same periodic point.  Average all
+            // equivalence classes (including corners) before Faraday update.
+            std::vector<int> parent(nodePool.nodeCount);
+            for (int nodeIndex = 0; nodeIndex < nodePool.nodeCount; ++nodeIndex) parent[nodeIndex] = nodeIndex;
+            const auto find_root = [&parent](int node) {
+                int root = node;
+                while (parent[root] != root) root = parent[root];
+                while (parent[node] != node) {
+                    const int next = parent[node];
+                    parent[node] = root;
+                    node = next;
+                }
+                return root;
+            };
+            const auto unite = [&parent, &find_root](const int first, const int second) {
+                const int firstRoot = find_root(first);
+                const int secondRoot = find_root(second);
+                if (firstRoot != secondRoot) parent[secondRoot] = firstRoot;
+            };
+            for (const auto& [left, right] : ns.boundaryNodeLeftToRight) unite(left, right);
+            for (const auto& [top, bottom] : ns.boundaryNodeTopToBottom) unite(top, bottom);
+            std::vector<double> classSums(nodePool.nodeCount, 0.0);
+            std::vector<int> classCounts(nodePool.nodeCount, 0);
+            for (int nodeIndex = 0; nodeIndex < nodePool.nodeCount; ++nodeIndex) {
+                const int root = find_root(nodeIndex);
+                classSums[root] += nodeMagDiffs[nodeIndex];
+                ++classCounts[root];
+            }
+            for (int nodeIndex = 0; nodeIndex < nodePool.nodeCount; ++nodeIndex) {
+                const int root = find_root(nodeIndex);
+                nodeMagDiffs[nodeIndex] = classSums[root] / static_cast<double>(classCounts[root]);
             }
         }
 
-        //!!! добавить г.у.
-        //корректируем магнитные величины
-        //находим узловые значения нужных магнитных разностей //(v x B)z в узлах
-        std::vector<double> nodeMagDiffs(nodePool.nodeCount, 0.0); //(v x B)z в узлах
-//#pragma omp parallel for
-        for (const auto &node: nodePool.nodes) {
-            int tmp_count = 0;
-            for (const auto &neighbourEdgeInd: ns.getEdgeNeighborsOfNode(node.ind)) {
-                // добавить проверку на совпадения направлений в-ра скорости и нарпавляющего ребра
-                Edge neighbourEdge = edgePool.edges[neighbourEdgeInd];
-                if(elPool.elements[neighbourEdge.neighbourInd1].is_ghost && neighbourEdge.neighbourInd2 == -1){
-                    //std::cout << "SEE A GHOST!" << std::endl;
-                    //continue;
-                }
-                Node node1 = nodePool.getNode(neighbourEdge.nodeInd1);
-                Node node2 = nodePool.getNode(neighbourEdge.nodeInd2);
-                int inflowOrientation = 1;
-                double u = edgeUs[neighbourEdgeInd][1]/edgeUs[neighbourEdgeInd][0];
-                double v = edgeUs[neighbourEdgeInd][2]/edgeUs[neighbourEdgeInd][0];
-                if(neighbourEdge.nodeInd1 == node.ind){
-                    //inflowOrientation = sgn((u*(node1.pos.x - node2.pos.x) + v*(node1.pos.y - node2.pos.y)));
-                    //std::cout << "scalar mult = " << (u*(node1.pos.x - node2.pos.x) + v*(node1.pos.y - node2.pos.y)) <<" , orient = " << inflowOrientation <<std::endl;
-                    //std::cin.get();
-                }
-                else if(neighbourEdge.nodeInd2 == node.ind){
-                    //inflowOrientation =  sgn((u*(node2.pos.x - node1.pos.x) + v*(node2.pos.y - node1.pos.y)));
-                    //std::cout << "scalar mult = " <<  (u*(node2.pos.x - node1.pos.x) + v*(node2.pos.y - node1.pos.y))  <<" , orient = " << inflowOrientation <<std::endl;
-                    //std::cin.get();
-                }
-                if(inflowOrientation > 0) {
-                    nodeMagDiffs[node.ind] += unrotated_fluxes[neighbourEdgeInd][6];
-                    ++tmp_count;
-                }
-            }
-            if (tmp_count) {
-                nodeMagDiffs[node.ind] /= tmp_count;
-            }
-        }
-
-        //находим новое значение Bn в ребре
+        // Faraday update is defined only on physical faces.  Reflected
+        // auxiliary edges are boundary-data storage, not CT degrees of
+        // freedom.
         std::vector<double> bNs_prev(bNs);
-        for (int i = 0; i < edgePool.edgeCount; ++i) {
-            Edge edge = edgePool.edges[i];
-            bNs[edge.ind] = bNs_prev[edge.ind] + (tau / edge.length) * (nodeMagDiffs[edge.nodeInd2] -
-                                                        nodeMagDiffs[edge.nodeInd1]);
+        for (int i = 0; i < innerEdgeCount; ++i) {
+            const Edge& edge = edgePool.edges[i];
+            // unrotated_fluxes[6] is G=(v x B)_z=-E_z in the local
+            // (normal,tangent,z) system.  The explicit sign makes Stokes'
+            // update invariant to whether the input triangle is CW or CCW.
+            bNs[edge.ind] = advanceFaceNormalBFromCt(
+                edge, nodePool, bNs_prev[edge.ind], tau,
+                nodeMagDiffs[edge.nodeInd1], nodeMagDiffs[edge.nodeInd2]);
         }
 
-        //сносим Bn в центр элемента
-//#pragma omp parallel for
+        // Reconstruct the cell-centred magnetic field from the CT-owned
+        // normal fluxes with the same RT0 operator used at initialization.
+        // Explicit edge ownership avoids the historical dependence on an
+        // incidental node ordering.
         for (int i = 0; i < innerElemCount; ++i) {
-            Element elem = elPool.elements[i];
-            Vec2 centroid = getElementCentroid2D(elem, nodePool);
-            if(elem.edgeIndexes.empty()){
-                std::cerr << "Empty element! (no edges)" << std::endl;
-            }
-            double temp_sum_Bx = 0.0;
-            double temp_sum_By = 0.0;
-            for (const auto &edgeInd: elem.edgeIndexes) {
-                Edge edge = edgePool.edges[edgeInd];
-                Vec2 cTe = edge.midPoint - centroid;
-                double scmult = cTe*edge.normalVector;
-                if (scmult > 0.0/*edge.neighbourInd1 == elem.ind*/) {
-                    // у первого соседа в эдже заданы ноды в порядке полодительного обхода и нормаль тоже
-                    const auto nodeInElemInd = std::find(elem.nodeIndexes.begin(), elem.nodeIndexes.end(),
-                                                         edge.nodeInd1);
-                    int node_before_ind =
-                            nodeInElemInd == elem.nodeIndexes.begin() ? elem.nodeIndexes[elem.dim - 1] : *(
-                                    nodeInElemInd - 1);
-                    //std::cout << "edge of nodes = {"<< edge.nodeInd1 << " , " << edge.nodeInd2 << " } current ind = " << edge.nodeInd1 <<" Elem's node indexes: " << elem.nodeIndexes[0] << " "<< elem.nodeIndexes[1] << " "<< elem.nodeIndexes[2] << ", node_beforeInd = " << node_before_ind << std::endl;
-                    //std::cin.get();
-                    Node node_before = nodePool.getNode(node_before_ind);
-                    if(edgeInd < innerEdgeCount) {
-                        temp_sum_Bx += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
-                        temp_sum_By += bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
-                    }
-                    else{
-                        continue;
-                        temp_sum_Bx += ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
-                        temp_sum_By += ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
-                    }
-                } else if(scmult < 0.0/*edge.neighbourInd2 != -1*/){
-                    // а вот для второго нужно умножать на -1 и в обратном порядке
-                    const auto nodeInElemInd = std::find(elem.nodeIndexes.begin(), elem.nodeIndexes.end(),
-                                                         edge.nodeInd2);
-                    int node_before_ind =
-                            nodeInElemInd == elem.nodeIndexes.begin() ? elem.nodeIndexes[elem.dim - 1] : *(
-                                    nodeInElemInd - 1);
-                    Node node_before = nodePool.getNode(node_before_ind);
-                    if(edgeInd < innerEdgeCount) {
-                        temp_sum_Bx -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
-                        temp_sum_By -= bNs[edgeInd] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
-                    }
-                    else{
-                        continue;
-                        temp_sum_Bx -= ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.x - node_before.pos.x);
-                        temp_sum_By -= ghostBNs[edgeInd - innerEdgeCount] * edge.length / (2 * elem.area) * (centroid.y - node_before.pos.y);
-                    }
-                }
-            }
-            if(elem.ind < innerElemCount) {
-                elemUs[elem.ind][5] = temp_sum_Bx;
-                elemUs[elem.ind][6] = temp_sum_By;
-            }
-            else{
-               // ghostElemUs_prev[elem.ind - innerElemCount][5] = temp_sum_Bx;
-               // ghostElemUs_prev[elem.ind - innerElemCount][6] = temp_sum_By;
-            }
+            const Element& elem = elPool.elements[i];
+            const double oldMagneticEnergy =
+                0.5 * (elemUs[i][5] * elemUs[i][5] + elemUs[i][6] * elemUs[i][6] +
+                       elemUs[i][7] * elemUs[i][7]);
+            const Vec2 magneticField = reconstructCellMagneticFieldRT0(
+                elem, nodePool, edgePool, bNs, innerEdgeCount);
+            elemUs[i][5] = magneticField.x;
+            elemUs[i][6] = magneticField.y;
+            const double newMagneticEnergy =
+                0.5 * (elemUs[i][5] * elemUs[i][5] + elemUs[i][6] * elemUs[i][6] +
+                       elemUs[i][7] * elemUs[i][7]);
+            // E was already updated by the conservative MHD face flux.
+            // Do not overwrite that update to preserve p: a CT-induced
+            // change of reconstructed magnetic energy is a numerical
+            // magnetic/internal-energy exchange and must remain visible
+            // in p while the periodic total-energy balance stays closed.
+            const double magneticEnergyChange = newMagneticEnergy - oldMagneticEnergy;
+            ctMagneticEnergyChangeSigned += elem.area * magneticEnergyChange;
+            ctMagneticEnergyChangeL1 += elem.area * std::abs(magneticEnergyChange);
         }
 
-        // г.у (фикт ячейки) поставить перед выч-м потоков
-        if(periodicBoundaries){
-            // периодическое г.у.
-            for(const auto& [top, bot]: ns.boundaryElemTopToBottom){
-                int ghostIndTop = ns.boundaryToGhostElements[top] - innerElemCount;
-                int ghostIndBot = ns.boundaryToGhostElements[bot] - innerElemCount;
-                ghostElemUs[ghostIndTop] =  elemUs[bot];
-                ghostElemUs[ghostIndBot] = elemUs[top];
-            }
-            for(const auto& [left, right]: ns.boundaryElemLeftToRight){
-                int ghostIndLeft = ns.boundaryToGhostElements[left] - innerElemCount;
-                int ghostIndRight = ns.boundaryToGhostElements[right] - innerElemCount;
-                ghostElemUs[ghostIndLeft] =  elemUs[right];
-                ghostElemUs[ghostIndRight] = elemUs[left];
-            }
-        }
-        else{
-            // копируем значения в соответствующие фантомные ячейки (условие free flow)
-            for(const auto& [boundary, ghost] : ns.boundaryToGhostElements){
-                int ghostInd = ghost - innerElemCount;
-                ghostElemUs[ghostInd] = elemUs[boundary];
-            }
-        }
-
-//#pragma parallel for
-        for(const auto& u: elemUs){
-            for(const auto& val: u){
-                if(std::isnan(val)){
-                    foundNan = true;
-                    break;
-                }
-            }
-        }
-        if(foundNan){
-            std::cout << "Found a nan VALUE!!! Exiting the solver..." << std::endl;
-            break;
-        }
+        ensure_admissible_states("post-ct", iterations, currentTime, true);
+        refresh_ghost_states();
         ++iterations;
     }
     writeVTU("OutputData/tmpres_" + std::to_string(iterations) + ".vtu", ghostOutput);
-    std::cout << "Final time = " << currentTime << "; iterations = "<< iterations<<  std::endl;
-    divergence = computeDivergence();
-    std::cout << "Final divergence = " << divergence << std::endl;
+    std::cout << std::setprecision(17) << "Final time = " << currentTime
+              << "; iterations = " << iterations << std::endl;
+    const DivergenceMetrics finalDivergence = computeDivergenceMetrics(divergenceReferenceField);
+    const std::vector<double> finalConserved = integrated_conserved();
+    std::cout << "Final max|magnetic flux residual| = " << finalDivergence.maxFlux
+              << "; max|div B| = " << finalDivergence.maxAbs
+              << "; global scaled magnetic-flux imbalance = " << finalDivergence.maxScaled << std::endl;
+    std::cout << "CT reconstruction magnetic-energy change: signed = " << ctMagneticEnergyChangeSigned
+              << "; L1 = " << ctMagneticEnergyChangeL1 << std::endl;
+    std::cout << "HLLD-to-HLLE fallbacks = " << hlldFallbacks
+              << "; CFL candidate range = [" << minCflCandidate << ", " << maxCflCandidate << "]" << std::endl;
+    for (int component = 0; component < 5; ++component) {
+        const double stateChange = finalConserved[component] - initialConserved[component];
+        const double balanceResidual = stateChange + integratedBoundaryFlux[component];
+        std::cout << "Conservation component " << component
+                  << ": delta=" << stateChange
+                  << "; boundary_flux_integral=" << integratedBoundaryFlux[component]
+                  << "; residual=" << balanceResidual << std::endl;
+    }
 }
 
 
@@ -1290,37 +1324,150 @@ void MHDSolver2D::writeVTU(const std::string& filename, const bool& ghost) {
     file.close();
 }
 
+double edgeCtOrientation(const Edge& edge, const NodePool& nodePool) {
+    if (!(edge.length > 0.0) || !std::isfinite(edge.length)) {
+        throw std::runtime_error("CT edge has an invalid length");
+    }
+    const Node first = nodePool.getNode(edge.nodeInd1);
+    const Node second = nodePool.getNode(edge.nodeInd2);
+    const double tangentX = (second.pos.x - first.pos.x) / edge.length;
+    const double tangentY = (second.pos.y - first.pos.y) / edge.length;
+    const double ctTangentX = -edge.normalVector.y;
+    const double ctTangentY = edge.normalVector.x;
+    const double orientation = tangentX * ctTangentX + tangentY * ctTangentY;
+    if (!std::isfinite(orientation) || std::abs(std::abs(orientation) - 1.0) > 1.0e-12) {
+        throw std::runtime_error("CT edge tangent and normal are not an oriented orthonormal pair");
+    }
+    return orientation > 0.0 ? 1.0 : -1.0;
+}
 
-double MHDSolver2D::computeDivergence() {
-    double max_divergence = 0.0;
-    ElementPool elPool = geometryWorld.getElementPool();
-    NodePool nodePool = geometryWorld.getNodePool();
-    EdgePool edgePool = geometryWorld.getEdgePool();
-    // 1/S Sum(l*Bn)
-    for (int i = 0; i < innerElemCount; ++i) {
-        Element elem = elPool.elements[i];
-        Vec2 centroid = getElementCentroid2D(elem, nodePool);
-        if (elem.edgeIndexes.empty()) {
-            std::cerr << "Empty element! (no edges)" << std::endl;
-        }
-        double divergence = 0.0;
-        for (const auto &edgeInd: elem.edgeIndexes) {
-            Edge edge = edgePool.edges[edgeInd];
-            Vec2 cTe = edge.midPoint - centroid;
-            double scmult = cTe*edge.normalVector;
-            if (scmult > 0) {
-                divergence += edge.length * bNs[edgeInd];
-            } else {
-                divergence -= edge.length * bNs[edgeInd];
-            }
-        }
-        divergence /= elem.area;
-        if(divergence > max_divergence){
-            max_divergence = divergence;
-        }
+double advanceFaceNormalBFromCt(const Edge& edge, const NodePool& nodePool,
+                                const double previousNormalB, const double dt,
+                                const double firstNodeG, const double secondNodeG) {
+    if (!std::isfinite(previousNormalB) || !(dt >= 0.0) || !std::isfinite(dt) ||
+        !std::isfinite(firstNodeG) || !std::isfinite(secondNodeG)) {
+        throw std::runtime_error("CT Faraday update received a non-finite value");
+    }
+    return previousNormalB + edgeCtOrientation(edge, nodePool) * dt / edge.length *
+           (secondNodeG - firstNodeG);
+}
+
+Vec2 reconstructCellMagneticFieldRT0(const Element& element,
+                                     const NodePool& nodePool,
+                                     const EdgePool& edgePool,
+                                     const std::vector<double>& faceNormalB,
+                                     const int physicalEdgeCount) {
+    if (element.dim != 3 || element.nodeIndexes.size() != 3 ||
+        !(element.area > 0.0) || !std::isfinite(element.area)) {
+        throw std::runtime_error("RT0 reconstruction requires a nondegenerate triangular element");
+    }
+    if (physicalEdgeCount < 0 || physicalEdgeCount > edgePool.edgeCount ||
+        static_cast<int>(faceNormalB.size()) < physicalEdgeCount) {
+        throw std::runtime_error("Invalid physical edge field for RT0 reconstruction");
     }
 
-    return max_divergence;
+    const Vec2 centroid = getElementCentroid2D(element, nodePool);
+    Vec2 field{0.0, 0.0};
+    for (const int edgeIndex : element.edgeIndexes) {
+        if (edgeIndex < 0 || edgeIndex >= physicalEdgeCount) {
+            throw std::runtime_error("Physical element references a ghost edge during RT0 reconstruction");
+        }
+        const Edge& edge = edgePool.edges[edgeIndex];
+        int oppositeNode = -1;
+        for (const int nodeIndex : element.nodeIndexes) {
+            if (nodeIndex != edge.nodeInd1 && nodeIndex != edge.nodeInd2) {
+                if (oppositeNode != -1) {
+                    throw std::runtime_error("Non-triangular edge/node relation during RT0 reconstruction");
+                }
+                oppositeNode = nodeIndex;
+            }
+        }
+        if (oppositeNode < 0) {
+            throw std::runtime_error("Edge does not belong to its RT0 reconstruction element");
+        }
+
+        double outwardSign = 0.0;
+        if (edge.neighbourInd1 == element.ind) {
+            outwardSign = 1.0;
+        } else if (edge.neighbourInd2 == element.ind) {
+            outwardSign = -1.0;
+        } else {
+            throw std::runtime_error("Element does not own an edge during RT0 reconstruction");
+        }
+        const Node opposite = nodePool.getNode(oppositeNode);
+        const double coefficient = outwardSign * faceNormalB[edgeIndex] * edge.length /
+                                   (2.0 * element.area);
+        field.x += coefficient * (centroid.x - opposite.pos.x);
+        field.y += coefficient * (centroid.y - opposite.pos.y);
+    }
+    return field;
+}
+
+DivergenceMetrics MHDSolver2D::computeDivergenceMetrics(double referenceField) {
+    const ElementPool elPool = geometryWorld.getElementPool();
+    const NodePool nodePool = geometryWorld.getNodePool();
+    const EdgePool edgePool = geometryWorld.getEdgePool();
+    const int physicalElementCount = elPool.elCount - geometryWorld.ghostElemCount;
+    const int physicalEdgeCount = edgePool.edgeCount - geometryWorld.ghostElemCount * 2;
+    if (physicalElementCount < 0 || physicalEdgeCount < 0 ||
+        static_cast<int>(bNs.size()) < physicalEdgeCount) {
+        throw std::runtime_error("Invalid geometry or CT field while measuring divergence");
+    }
+
+    DivergenceMetrics metrics;
+    if (referenceField > 0.0 && std::isfinite(referenceField)) {
+        metrics.referenceField = referenceField;
+    } else {
+        for (int edgeIndex = 0; edgeIndex < physicalEdgeCount; ++edgeIndex) {
+            metrics.referenceField = std::max(metrics.referenceField, std::abs(bNs[edgeIndex]));
+        }
+        // A field-free case has an exact zero flux residual; use one only as
+        // an unambiguous reporting scale, never as a local denominator.
+        if (!(metrics.referenceField > 0.0)) metrics.referenceField = 1.0;
+    }
+
+    for (int elementIndex = 0; elementIndex < physicalElementCount; ++elementIndex) {
+        const Element& element = elPool.elements[elementIndex];
+        if (!(element.area > 0.0) || !std::isfinite(element.area)) {
+            throw std::runtime_error("Degenerate element while measuring divergence");
+        }
+        const Vec2 centroid = getElementCentroid2D(element, nodePool);
+        double signedFlux = 0.0;
+        double perimeter = 0.0;
+        double localFieldIntegral = 0.0;
+        for (const int edgeIndex : element.edgeIndexes) {
+            if (edgeIndex < 0 || edgeIndex >= physicalEdgeCount) {
+                throw std::runtime_error("Physical element references a ghost edge while measuring divergence");
+            }
+            const Edge& edge = edgePool.edges[edgeIndex];
+            const Vec2 centreToEdge = edge.midPoint - centroid;
+            const double orientation = centreToEdge * edge.normalVector;
+            if (orientation == 0.0) {
+                throw std::runtime_error("Zero edge orientation while measuring divergence");
+            }
+            const double signedBn = orientation > 0.0 ? bNs[edgeIndex] : -bNs[edgeIndex];
+            signedFlux += edge.length * signedBn;
+            perimeter += edge.length;
+            localFieldIntegral += edge.length * std::abs(bNs[edgeIndex]);
+        }
+        const double absoluteFlux = std::abs(signedFlux);
+        metrics.maxFlux = std::max(metrics.maxFlux, absoluteFlux);
+        metrics.maxAbs = std::max(metrics.maxAbs, absoluteFlux / element.area);
+        metrics.maxScaled = std::max(metrics.maxScaled,
+                                     absoluteFlux / (metrics.referenceField * perimeter));
+        // The local measure is informative away from field-free cells only;
+        // it is deliberately not used as a gate because the denominator can
+        // be arbitrarily small in magnetic-loop exterior cells.
+        if (localFieldIntegral > metrics.referenceField * perimeter * 1.0e-12) {
+            metrics.maxLocalScaled = std::max(metrics.maxLocalScaled,
+                                               absoluteFlux / localFieldIntegral);
+        }
+    }
+    return metrics;
+}
+
+double MHDSolver2D::computeDivergence() {
+    return computeDivergenceMetrics().maxAbs;
 }
 
 std::vector<int> findCommonElements(const std::vector<int>& v1, const std::vector<int>& v2) {
@@ -2553,4 +2700,3 @@ void MHDSolver2D::runGPUSolver() {
     divergence = computeDivergence();
     std::cout << "Final divergence = " << divergence << std::endl;
 }
-

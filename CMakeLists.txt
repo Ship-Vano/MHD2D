@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 project(MHD2D LANGUAGES CXX)
+include(CTest)
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 23)
@@ -47,6 +48,32 @@ if(OpenMP_CXX_FOUND)
     target_link_libraries(Geometry PRIVATE OpenMP::OpenMP_CXX)
 else()
     message(WARNING "OpenMP not found, continuing without OpenMP support")
+endif()
+
+if(BUILD_TESTING)
+    add_executable(legacy_corrected_kernel_test
+        tests/legacy_corrected_kernel_test.cpp
+        src/MHDsolver/MHDSolver1D.cpp
+        src/MHDsolver/MHDSolver2D.cpp
+        src/geometry/NetGeometry.cpp
+        src/include/utility/utility.cpp
+    )
+    target_include_directories(legacy_corrected_kernel_test PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/MHDsolver
+        ${CMAKE_SOURCE_DIR}/src/geometry
+        ${CMAKE_SOURCE_DIR}/src/include
+    )
+    if(OpenMP_CXX_FOUND)
+        target_link_libraries(legacy_corrected_kernel_test PRIVATE OpenMP::OpenMP_CXX)
+    endif()
+    add_test(
+        NAME legacy_corrected_kernel
+        COMMAND legacy_corrected_kernel_test
+            ${CMAKE_SOURCE_DIR}/tests/data/irregular_periodic_mesh.txt
+            ${CMAKE_SOURCE_DIR}/tests/data/sliver_periodic_mesh.txt
+            ${CMAKE_SOURCE_DIR}/tests/data/irregular_periodic_mesh_cw.txt
+    )
+    set_tests_properties(legacy_corrected_kernel PROPERTIES TIMEOUT 30)
 endif()
 
 option(USE_CUDA "Enable CUDA support" OFF)

@@ -3,8 +3,10 @@
 //
 #include "MHDSolver1D.h"
 
+#include <stdexcept>
+
 /*          0      1      2      3    4   5   6   7
- * state:  rho,  rho*u, rho*v, rho*w, e, Bx, Bz, By
+ * state:  rho,  rho*u, rho*v, rho*w, e, Bx, By, Bz
  * */
 
 // Давление
@@ -144,7 +146,7 @@ double cfast(const std::vector<double>& U, const double& gam_hcr) {
 // Определяем HLL поток F
 std::vector<double> HLL_flux(const std::vector<double>& U_L, const std::vector<double>& U_R, const double &gam_hcr) {
     /*          0      1      2      3    4   5   6   7
-     * state:  rho,  rho*u, rho*v, rho*w, e, Bx, Bz, By
+     * state:  rho,  rho*u, rho*v, rho*w, e, Bx, By, Bz
      */
     double rho_L = U_L[0];
     double u_L = U_L[1]/rho_L;
@@ -188,7 +190,7 @@ std::vector<double> HLL_flux(const std::vector<double>& U_L, const std::vector<d
 // Определяем HLLC поток F
 std::vector<double> HLLC_flux(const std::vector<double>& U_L, const std::vector<double>& U_R, const double &gam_hcr) {
     /*          0      1      2      3    4   5   6   7
-     * state:  rho,  rho*u, rho*v, rho*w, e, Bx, Bz, By
+     * state:  rho,  rho*u, rho*v, rho*w, e, Bx, By, Bz
      */
     double rho_L = U_L[0];
     double u_L = U_L[1]/rho_L;
@@ -299,7 +301,7 @@ std::vector<double> HLLC_flux(const std::vector<double>& U_L, const std::vector<
 // Определяем HLLD поток F
 std::vector<double> HLLD_flux(const std::vector<double>& U_L, const std::vector<double>& U_R, const double &gam_hcr) {
     /*          0      1      2      3    4   5   6   7
-     * state:  rho,  rho*u, rho*v, rho*w, e, Bx, Bz, By
+     * state:  rho,  rho*u, rho*v, rho*w, e, Bx, By, Bz
      */
     double rho_L = U_L[0];
     double u_L = U_L[1]/rho_L;
@@ -444,6 +446,162 @@ std::vector<double> HLLD_flux(const std::vector<double>& U_L, const std::vector<
 //!!!   //FR
         return MHD_flux(U_R, gam_hcr);
     }
+}
+
+std::vector<double> HLLD_flux_corrected(std::vector<double> U_L, std::vector<double> U_R,
+                                        const double &gam_hcr, std::size_t* fallbackCounter) {
+    constexpr double tiny = 1.0e-14;
+    const auto finite_state = [](const std::vector<double>& U) {
+        if (U.size() != 8 || !(U[0] > 0.0)) return false;
+        for (const double value : U) if (!std::isfinite(value)) return false;
+        return true;
+    };
+    const auto require_admissible = [&](const std::vector<double>& U, const char* label) {
+        if (!finite_state(U)) throw std::domain_error(std::string("HLLD received an invalid ") + label + " state");
+        const double p = pressure(U, gam_hcr);
+        if (!(p > 0.0) || !std::isfinite(p)) {
+            throw std::domain_error(std::string("HLLD received a nonpositive-pressure ") + label + " state");
+        }
+    };
+    require_admissible(U_L, "left");
+    require_admissible(U_R, "right");
+
+    // CT owns Bn.  Retain the gas pressure when changing the conservative
+    // state from a cell-centred normal field to this face-normal field.
+    const double Bx = 0.5 * (U_L[5] + U_R[5]);
+    U_L[4] += 0.5 * (Bx * Bx - U_L[5] * U_L[5]);
+    U_R[4] += 0.5 * (Bx * Bx - U_R[5] * U_R[5]);
+    U_L[5] = Bx;
+    U_R[5] = Bx;
+    require_admissible(U_L, "left CT-normalized");
+    require_admissible(U_R, "right CT-normalized");
+
+    const double rhoL = U_L[0], rhoR = U_R[0];
+    const double uL = U_L[1] / rhoL, uR = U_R[1] / rhoR;
+    const double vL = U_L[2] / rhoL, vR = U_R[2] / rhoR;
+    const double wL = U_L[3] / rhoL, wR = U_R[3] / rhoR;
+    const double ByL = U_L[6], ByR = U_R[6];
+    const double BzL = U_L[7], BzR = U_R[7];
+    const double pL = pressure(U_L, gam_hcr), pR = pressure(U_R, gam_hcr);
+    const double pTL = ptotal(pL, Bx, ByL, BzL);
+    const double pTR = ptotal(pR, Bx, ByR, BzR);
+    const auto fast_speed = [&](const double rho, const double p, const double By, const double Bz) {
+        const double a2 = gam_hcr * p / rho;
+        const double ca2 = (Bx * Bx + By * By + Bz * Bz) / rho;
+        const double cn2 = Bx * Bx / rho;
+        const double sum = a2 + ca2;
+        // The continuous discriminant is nonnegative; this only removes
+        // roundoff from that algebraic invariant, not a physical state floor.
+        const double discriminant = std::max(0.0, sum * sum - 4.0 * a2 * cn2);
+        const double result = std::sqrt(0.5 * (sum + std::sqrt(discriminant)));
+        if (!std::isfinite(result)) throw std::domain_error("HLLD could not form a finite fast-wave speed");
+        return result;
+    };
+    const double cfL = fast_speed(rhoL, pL, ByL, BzL);
+    const double cfR = fast_speed(rhoR, pR, ByR, BzR);
+    const double cmax = std::max(cfL, cfR);
+    const double SL = std::min(uL, uR) - cmax;
+    const double SR = std::max(uL, uR) + cmax;
+    if (!(SL < SR)) throw std::domain_error("HLLD signal-speed interval is invalid");
+
+    const std::vector<double> FL = MHD_flux(U_L, gam_hcr);
+    const std::vector<double> FR = MHD_flux(U_R, gam_hcr);
+    const auto fallback_hlle = [&]() {
+        if (fallbackCounter != nullptr) ++(*fallbackCounter);
+        const double denominator = SR - SL;
+        if (!(denominator > 0.0) || !std::isfinite(denominator)) {
+            throw std::domain_error("HLLE fallback signal-speed interval is invalid");
+        }
+        std::vector<double> result(8, 0.0);
+        for (int n = 0; n < 8; ++n) {
+            result[n] = (SR * FL[n] - SL * FR[n] + SL * SR * (U_R[n] - U_L[n])) / denominator;
+            if (!std::isfinite(result[n])) throw std::domain_error("HLLE fallback produced a non-finite flux");
+        }
+        return result;
+    };
+    if (SL >= 0.0) return FL;
+    if (SR <= 0.0) return FR;
+
+    const double aL = SL - uL, aR = SR - uR;
+    const double den = aR * rhoR - aL * rhoL;
+    if (std::abs(den) < tiny || !std::isfinite(den)) return fallback_hlle();
+    const double SM = (aR * rhoR * uR - aL * rhoL * uL - pTR + pTL) / den;
+    const double pTs = (aR * rhoR * pTL - aL * rhoL * pTR +
+                        rhoL * rhoR * aR * aL * (uR - uL)) / den;
+    if (!std::isfinite(SM) || !std::isfinite(pTs) || !(pTs > 0.0)) return fallback_hlle();
+
+    struct Star { std::vector<double> U; double sqrt_rho; };
+    const auto star_state = [&](const std::vector<double>& U, const double rho, const double u,
+                                const double v, const double w, const double By, const double Bz,
+                                const double pT, const double S) -> Star {
+        const double su = S - u;
+        const double sm = S - SM;
+        if (std::abs(sm) < tiny) return {{}, 0.0};
+        const double rhos = rho * su / sm;
+        if (!(rhos > tiny) || !std::isfinite(rhos)) return {{}, 0.0};
+        const double d = rho * su * sm - Bx * Bx;
+        double vs = v, ws = w, Bys = By, Bzs = Bz;
+        if (std::abs(d) >= tiny * std::max(1.0, std::abs(rho * su * su))) {
+            const double c1 = (SM - u) / d;
+            const double c2 = (rho * su * su - Bx * Bx) / d;
+            vs = v - Bx * By * c1;
+            ws = w - Bx * Bz * c1;
+            Bys = By * c2;
+            Bzs = Bz * c2;
+        }
+        const double vB = u * Bx + v * By + w * Bz;
+        const double vBs = SM * Bx + vs * Bys + ws * Bzs;
+        const double es = (su * U[4] - pT * u + pTs * SM + Bx * (vB - vBs)) / sm;
+        std::vector<double> Us{rhos, rhos * SM, rhos * vs, rhos * ws, es, Bx, Bys, Bzs};
+        if (!finite_state(Us) || !(pressure(Us, gam_hcr) > 0.0)) return {{}, 0.0};
+        return {Us, std::sqrt(rhos)};
+    };
+
+    const Star UsL = star_state(U_L, rhoL, uL, vL, wL, ByL, BzL, pTL, SL);
+    const Star UsR = star_state(U_R, rhoR, uR, vR, wR, ByR, BzR, pTR, SR);
+    if (UsL.U.empty() || UsR.U.empty()) return fallback_hlle();
+    const double SsL = SM - std::abs(Bx) / UsL.sqrt_rho;
+    const double SsR = SM + std::abs(Bx) / UsR.sqrt_rho;
+    const auto rh_flux = [](const std::vector<double>& F, const double S,
+                            const std::vector<double>& Us, const std::vector<double>& U) {
+        std::vector<double> result(8);
+        for (int n = 0; n < 8; ++n) result[n] = F[n] + S * (Us[n] - U[n]);
+        return result;
+    };
+    if (SsL >= 0.0) return rh_flux(FL, SL, UsL.U, U_L);
+    if (SsR <= 0.0) return rh_flux(FR, SR, UsR.U, U_R);
+    if (std::abs(Bx) < tiny) {
+        return SM >= 0.0 ? rh_flux(FL, SL, UsL.U, U_L) : rh_flux(FR, SR, UsR.U, U_R);
+    }
+
+    const double signBx = Bx >= 0.0 ? 1.0 : -1.0;
+    const double inv = 1.0 / (UsL.sqrt_rho + UsR.sqrt_rho);
+    const double vLs = UsL.U[2] / UsL.U[0], wLs = UsL.U[3] / UsL.U[0];
+    const double vRs = UsR.U[2] / UsR.U[0], wRs = UsR.U[3] / UsR.U[0];
+    const double vss = (UsL.sqrt_rho * vLs + UsR.sqrt_rho * vRs + (UsR.U[6] - UsL.U[6]) * signBx) * inv;
+    const double wss = (UsL.sqrt_rho * wLs + UsR.sqrt_rho * wRs + (UsR.U[7] - UsL.U[7]) * signBx) * inv;
+    const double Byss = (UsL.sqrt_rho * UsR.U[6] + UsR.sqrt_rho * UsL.U[6] +
+                         UsL.sqrt_rho * UsR.sqrt_rho * (vRs - vLs) * signBx) * inv;
+    const double Bzss = (UsL.sqrt_rho * UsR.U[7] + UsR.sqrt_rho * UsL.U[7] +
+                         UsL.sqrt_rho * UsR.sqrt_rho * (wRs - wLs) * signBx) * inv;
+    const bool left = SM >= 0.0;
+    const Star& Us = left ? UsL : UsR;
+    const double vBs = SM * Bx + (Us.U[2] / Us.U[0]) * Us.U[6] + (Us.U[3] / Us.U[0]) * Us.U[7];
+    const double vBss = SM * Bx + vss * Byss + wss * Bzss;
+    const double energySign = left ? -signBx : signBx;
+    std::vector<double> Uss{Us.U[0], Us.U[0] * SM, Us.U[0] * vss, Us.U[0] * wss,
+                            Us.U[4] + energySign * Us.sqrt_rho * (vBs - vBss), Bx, Byss, Bzss};
+    if (!finite_state(Uss) || !(pressure(Uss, gam_hcr) > 0.0)) return fallback_hlle();
+    std::vector<double> result(8);
+    if (left) {
+        for (int n = 0; n < 8; ++n)
+            result[n] = FL[n] + SsL * Uss[n] - (SsL - SL) * UsL.U[n] - SL * U_L[n];
+    } else {
+        for (int n = 0; n < 8; ++n)
+            result[n] = FR[n] + SsR * Uss[n] - (SsR - SR) * UsR.U[n] - SR * U_R[n];
+    }
+    for (const double value : result) if (!std::isfinite(value)) return fallback_hlle();
+    return result;
 }
 
 

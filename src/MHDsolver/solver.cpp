@@ -34,6 +34,11 @@ int main(){
     bool debugDivergence = json_root.get("debugDivergence", false).asBool();
     bool ghostOutput = json_root.get("ghostOutput", false).asBool();
     int iterationsPerFrame = json_root.get("iterationsPerFrame", 10).asInt();
+    double configuredCfl = json_root.get("cfl", -1.0).asDouble();
+    double fieldLoopU = json_root.get("fieldLoopU", 2.0).asDouble();
+    double fieldLoopV = json_root.get("fieldLoopV", 1.0).asDouble();
+    double fieldLoopRadius = json_root.get("fieldLoopRadius", 0.3).asDouble();
+    double fieldLoopAmplitude = json_root.get("fieldLoopAmplitude", 1.0e-3).asDouble();
     // world.display();
     //std::cin.get();
     omp_set_num_threads(omp_get_max_threads());
@@ -42,6 +47,11 @@ int main(){
     solver.finalTime = finalTime;
     solver.debugDivergence = debugDivergence;
     solver.iterationsPerFrame = iterationsPerFrame;
+    solver.configuredCfl = configuredCfl;
+    solver.fieldLoopU = fieldLoopU;
+    solver.fieldLoopV = fieldLoopV;
+    solver.fieldLoopRadius = fieldLoopRadius;
+    solver.fieldLoopAmplitude = fieldLoopAmplitude;
     solver.ghostOutput = ghostOutput;
 
     bool cylindrical= json_root.get("cylindrical", false).asBool();
